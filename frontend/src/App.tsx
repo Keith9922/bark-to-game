@@ -23,6 +23,7 @@ type Phase =
   | { kind: 'idle' }
   | { kind: 'analyzing'; startedAt: number; elapsedS: number }
   | { kind: 'no_sound' }
+  | { kind: 'not_a_bark'; detectedClass: string; rejectedCount: number }
   | { kind: 'translating'; tokens: AnalyzeResponse; startedAt: number; elapsedS: number }
   | {
       kind: 'generating'
@@ -49,6 +50,7 @@ const STATUS: Record<string, { cn: string; en: string }> = {
   idle: { cn: '等待录音', en: 'READY' },
   analyzing: { cn: '正在分析声音', en: 'ANALYZING' },
   no_sound: { cn: '没听到声音', en: 'NO SOUND' },
+  not_a_bark: { cn: '听到了，但不是狗叫', en: 'NOT A BARK' },
   translating: { cn: '正在构思游戏', en: 'TRANSLATING' },
   generating: { cn: '正在生成游戏', en: 'BUILDING' },
   playable: { cn: '游戏就绪', en: 'READY TO PLAY' },
@@ -135,8 +137,16 @@ function App() {
       return
     }
 
-    if (tokens.tokens.length === 0) {
+    if (tokens.detection === 'silent' || tokens.tokens.length === 0) {
       setPhase({ kind: 'no_sound' })
+      return
+    }
+    if (tokens.detection === 'not_a_bark') {
+      setPhase({
+        kind: 'not_a_bark',
+        detectedClass: tokens.detected_class,
+        rejectedCount: tokens.rejected_segment_count,
+      })
       return
     }
 
@@ -308,6 +318,32 @@ function App() {
               className="mt-2 px-5 py-2 border-2 border-signal text-signal hover:bg-signal/10 font-display"
             >
               🔁 重新录音
+            </button>
+          </section>
+        )}
+
+        {phase.kind === 'not_a_bark' && (
+          <section className="border border-amber-crt/40 bg-amber-crt/5 p-5 space-y-3">
+            <h3 className="font-display text-xl text-amber-crt">
+              🐶 听到了，但不像狗叫
+            </h3>
+            <p className="text-sm text-amber-crt/80">
+              AI 听到的更像是
+              <strong className="text-signal mx-1">
+                {phase.detectedClass || '其他声音'}
+              </strong>
+              {phase.rejectedCount > 1 ? `（共 ${phase.rejectedCount} 段都判定为非狗叫）` : ''}
+              。
+            </p>
+            <p className="text-xs text-amber-crt/60">
+              对着话筒认真学一声「汪 / 嗷呜 / 嗯哼」试试。声音越像狗，AI 越能解读。
+            </p>
+            <button
+              type="button"
+              onClick={reset}
+              className="mt-2 px-5 py-2 border-2 border-signal text-signal hover:bg-signal/10 font-display"
+            >
+              🔁 再来一声
             </button>
           </section>
         )}

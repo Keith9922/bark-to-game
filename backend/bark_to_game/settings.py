@@ -47,3 +47,15 @@ API_MODEL: str = os.getenv("BARK_API_MODEL", "claude-opus-4-7")
 # Hard cap on tokens per generation. Single-file games typically fit in
 # 6-10k tokens; we leave headroom for verbose visual recipes.
 API_MAX_OUTPUT_TOKENS: int = int(os.getenv("BARK_API_MAX_OUTPUT_TOKENS", "16000"))
+
+# Translate stage (token sequence -> 5 game concept candidates) is much
+# lighter than game generation — ~700 output tokens of JSON. Defaults to a
+# cheap+fast model so we don't burn Opus dollars on conceptual brainstorming.
+# Override with BARK_API_TRANSLATE_MODEL in .env if Sonnet's concepts feel weak.
+API_TRANSLATE_MODEL: str = os.getenv("BARK_API_TRANSLATE_MODEL", "claude-sonnet-4-6")
+
+# Cap on tokens for translate JSON output — 5 candidates of ~150 tokens each
+# fit comfortably in 2 KB.
+API_TRANSLATE_MAX_OUTPUT_TOKENS: int = int(
+    os.getenv("BARK_API_TRANSLATE_MAX_OUTPUT_TOKENS", "4096")
+)

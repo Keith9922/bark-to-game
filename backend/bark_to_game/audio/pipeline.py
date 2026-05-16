@@ -1,4 +1,14 @@
-"""Orchestrate full audio → token sequence pipeline."""
+"""Orchestrate full audio -> token sequence pipeline.
+
+Detection states (the ``detection`` field on the analysis result):
+  - ``"silent"``  — peak amplitude below the silence floor; no segments
+  - ``"not_a_bark"`` — segmentation found audio but no segment was dog-like
+  - ``"bark"`` — at least one segment scored as dog-like; tokens populated
+
+Non-bark segments are filtered out of the token list even when the overall
+detection is ``bark``: they are usually background speech or breath between
+real barks, and would pollute the translate prompt.
+"""
 
 from __future__ import annotations
 
@@ -66,7 +76,7 @@ def _session_summary(token_list: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def analyze(audio_bytes: bytes) -> dict[str, Any]:
-    """Full pipeline: bytes → tokens + session summary + audio hash (seed)."""
+    """Full pipeline: bytes -> tokens + session summary + audio hash (seed)."""
     if not audio_bytes:
         raise ValueError("empty audio buffer")
 
@@ -77,18 +87,40 @@ def analyze(audio_bytes: bytes) -> dict[str, Any]:
     # Hard silence guard: librosa.effects.split can mis-detect on uniform
     # zero/near-zero signals. Bypass segmentation if peak is essentially zero.
     if float(np.max(np.abs(y))) < SILENCE_AMPLITUDE_THRESHOLD:
-        intervals: list[tuple[int, int]] = []
-    else:
-        intervals = segmentation.split_on_silence(y, SAMPLE_RATE)
+        return {
+            "audio_hash": audio_hash,
+            "duration_ms": duration_ms,
+            "sample_count": int(y.size),
+            "tokens": [],
+            "summary": _session_summary([]),
+            "detection": "silent",
+            "detected_class": "",
+            "rejected_segment_count": 0,
+        }
 
-    token_list: list[dict[str, Any]] = []
+    intervals = segmentation.split_on_silence(y, SAMPLE_RATE)
+
+    bark_tokens: list[dict[str, Any]] = []
+    rejected_count = 0
+    # Track the strongest non-dog class we saw, so the front-end can tell the
+    # user what was heard instead of just "not a bark".
+    strongest_other_class = ""
+    strongest_other_score = 0.0
+
     for start, end in intervals:
         segment = y[start:end]
         seg_duration_ms = int((end - start) / SAMPLE_RATE * 1000)
         feats = features.compute(segment, SAMPLE_RATE)
         cls = classify.classify(segment, SAMPLE_RATE)
+        if not cls["is_dog_like"]:
+            rejected_count += 1
+            # Confidence here doubles as the YAMNet score for top_other_class.
+            if cls.get("top_other_class") and cls["confidence"] > strongest_other_score:
+                strongest_other_class = cls["top_other_class"]
+                strongest_other_score = cls["confidence"]
+            continue
         tok = tokens.make(feats, cls, seg_duration_ms)
-        token_list.append(
+        bark_tokens.append(
             {
                 "start_ms": int(start / SAMPLE_RATE * 1000),
                 "end_ms": int(end / SAMPLE_RATE * 1000),
@@ -96,10 +128,23 @@ def analyze(audio_bytes: bytes) -> dict[str, Any]:
             }
         )
 
+    if not intervals:
+        detection = "silent"
+        detected_class = ""
+    elif bark_tokens:
+        detection = "bark"
+        detected_class = ""
+    else:
+        detection = "not_a_bark"
+        detected_class = strongest_other_class
+
     return {
         "audio_hash": audio_hash,
         "duration_ms": duration_ms,
         "sample_count": int(y.size),
-        "tokens": token_list,
-        "summary": _session_summary(token_list),
+        "tokens": bark_tokens,
+        "summary": _session_summary(bark_tokens),
+        "detection": detection,
+        "detected_class": detected_class,
+        "rejected_segment_count": rejected_count,
     }
