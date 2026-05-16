@@ -166,7 +166,7 @@ export async function postTranslate(
   return response.json() as Promise<TranslateResponse>
 }
 
-export type JobStatus = 'pending' | 'running' | 'done' | 'failed'
+export type JobStatus = 'pending' | 'running' | 'done' | 'failed' | 'cancelled'
 
 export interface GenerateAccepted {
   job_id: string
@@ -230,9 +230,22 @@ export async function pollJobUntilDone(jobId: string, opts: PollOptions = {}): P
     if (opts.signal?.aborted) throw new DOMException('poll aborted', 'AbortError')
     const job = await getJob(jobId)
     opts.onProgress?.(job)
-    if (job.status === 'done' || job.status === 'failed') return job
+    if (job.status === 'done' || job.status === 'failed' || job.status === 'cancelled') {
+      return job
+    }
     await new Promise((r) => setTimeout(r, interval))
   }
+}
+
+export async function cancelJob(jobId: string): Promise<JobView> {
+  const response = await fetch(`${BACKEND_URL}/api/game/job/${jobId}`, {
+    method: 'DELETE',
+  })
+  if (!response.ok) {
+    const detail = await response.text().catch(() => response.statusText)
+    throw new Error(`cancel ${response.status}: ${detail}`)
+  }
+  return response.json() as Promise<JobView>
 }
 
 export function playUrlFor(playPath: string): string {

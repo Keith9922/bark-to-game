@@ -2,31 +2,31 @@ import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import App from './App'
 
-describe('App (Phase 4 — sessions)', () => {
+describe('App (v2 — bilingual UX)', () => {
   it('renders the wordmark', () => {
     render(<App />)
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/bark.*to.*game/i)
   })
 
-  it('reports idle status', () => {
+  it('reports the bilingual idle status', () => {
     render(<App />)
-    expect(screen.getByText(/SYS_STATUS · READY/)).toBeInTheDocument()
+    const status = screen.getByText(/状态：等待录音/)
+    expect(status).toBeInTheDocument()
+    expect(status).toHaveTextContent(/READY/)
   })
 
-  it('shows the hold-to-bark button', () => {
+  it('shows the Chinese start-recording button', () => {
     render(<App />)
-    expect(screen.getByRole('button', { name: /hold to bark/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /开始录音/ })).toBeInTheDocument()
   })
 
-  it('mentions Claude Code in the intro paragraph', () => {
+  it('explains the flow in Chinese', () => {
     render(<App />)
-    expect(screen.getByText(/Claude Code writes a playable/i)).toBeInTheDocument()
+    expect(screen.getByText(/对着话筒/)).toBeInTheDocument()
   })
 
-  it('shows the session switcher with a default label', () => {
+  it('mentions the session switcher tip in footer', () => {
     render(<App />)
-    const button = screen.getByRole('button', { name: /session:/i })
-    expect(button).toBeInTheDocument()
-    expect(button).toHaveTextContent(/default/i)
+    expect(screen.getByText(/右上角「话题」/)).toBeInTheDocument()
   })
 })
