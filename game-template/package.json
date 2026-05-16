@@ -1,0 +1,21 @@
+{
+  "name": "bark-to-game-template",
+  "private": true,
+  "description": "Phaser 4 game template — Claude Agent SDK generates games on top of this scaffold.",
+  "version": "0.1.0",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite --config vite/config.dev.mjs",
+    "build": "vite build --config vite/config.prod.mjs",
+    "preview": "vite preview --config vite/config.prod.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "~5.7.2",
+    "vite": "^6.3.1"
+  },
+  "dependencies": {
+    "phaser": "4.0.0",
+    "terser": "^5.39.0"
+  }
+}
