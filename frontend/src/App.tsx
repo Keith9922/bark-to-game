@@ -1,61 +1,100 @@
-const SYSTEM_CHECKS = [
-  { status: 'ok', label: 'react 19 + vite 8' },
-  { status: 'ok', label: 'typescript strict' },
-  { status: 'ok', label: 'tailwind v4' },
-  { status: 'ok', label: 'vitest + testing-library' },
-  { status: 'pending', label: 'phase 1 — audio capture (browser + librosa + YAMNet)' },
-  { status: 'pending', label: 'phase 2 — translation layer (VS + style cards)' },
-  { status: 'pending', label: 'phase 3 — generation + feedback (Claude Agent SDK)' },
-] as const
+import { useState } from 'react'
+import RecordButton from './components/RecordButton'
+import TokenList from './components/TokenList'
+import { postAnalyze, type AnalyzeResponse } from './lib/api'
+
+type Phase =
+  | { kind: 'idle' }
+  | { kind: 'recording' }
+  | { kind: 'processing' }
+  | { kind: 'success'; result: AnalyzeResponse }
+  | { kind: 'error'; message: string }
+
+function statusLine(phase: Phase): string {
+  switch (phase.kind) {
+    case 'idle':
+      return 'SYS_STATUS · READY'
+    case 'recording':
+      return 'SYS_STATUS · CAPTURING'
+    case 'processing':
+      return 'SYS_STATUS · ANALYZING…'
+    case 'success': {
+      const n = phase.result.tokens.length
+      return `SYS_STATUS · ${n} TOKEN${n === 1 ? '' : 'S'} EMITTED`
+    }
+    case 'error':
+      return 'SYS_STATUS · ERROR'
+  }
+}
+
+function statusDotClass(phase: Phase): string {
+  switch (phase.kind) {
+    case 'recording':
+      return 'bg-signal motion-safe:animate-pulse'
+    case 'error':
+      return 'bg-red-500'
+    default:
+      return 'bg-signal'
+  }
+}
 
 function App() {
+  const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
+
+  const handleRecorded = async (blob: Blob) => {
+    setPhase({ kind: 'processing' })
+    try {
+      const result = await postAnalyze(blob)
+      setPhase({ kind: 'success', result })
+    } catch (err) {
+      setPhase({ kind: 'error', message: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
   return (
-    <main className="min-h-dvh bg-black text-amber-crt flex flex-col items-center px-6 py-16 sm:py-24">
-      <div className="w-full max-w-3xl space-y-12">
-        <header className="space-y-6">
+    <main className="min-h-dvh bg-black text-amber-crt flex flex-col items-center px-6 py-12 sm:py-16">
+      <div className="w-full max-w-3xl space-y-10">
+        <header className="space-y-5">
           <div className="flex items-center gap-3 text-xs sm:text-sm text-amber-crt/60 uppercase tracking-widest">
             <span
-              aria-hidden="true"
-              className="inline-block size-2 rounded-full bg-signal motion-safe:animate-pulse"
+              aria-hidden
+              className={`inline-block size-2 rounded-full ${statusDotClass(phase)}`}
             />
-            <span>SYS_STATUS · PHASE_0_SCAFFOLD_OK</span>
+            <span>{statusLine(phase)}</span>
           </div>
-
-          <h1 className="font-display text-6xl sm:text-7xl md:text-8xl leading-none tracking-tight text-amber-crt">
+          <h1 className="font-display text-5xl sm:text-6xl md:text-7xl leading-none tracking-tight text-amber-crt">
             bark<span className="text-signal">_</span>to<span className="text-signal">_</span>game
           </h1>
-
-          <p className="max-w-2xl text-base sm:text-lg leading-relaxed text-amber-crt/80">
-            Audio interface for generating playable HTML5 games from human-mimicked dog barks.
-            <br />
-            librosa &amp; YAMNet route signal into Claude Agent SDK; Phaser renders the result.
+          <p className="text-sm sm:text-base text-amber-crt/70 max-w-xl">
+            Hold the dial below and mimic a dog. We extract pitch, duration, intensity, and classify
+            each segment via librosa + YAMNet. Phase 2 will translate these tokens into a game
+            concept.
           </p>
         </header>
 
-        <section
-          aria-labelledby="system-check-heading"
-          className="border border-amber-crt/30 p-5 sm:p-6"
-        >
-          <h2
-            id="system-check-heading"
-            className="font-display text-2xl sm:text-3xl text-signal mb-4"
-          >
-            $ system_check
-          </h2>
-          <ul className="space-y-1 text-sm">
-            {SYSTEM_CHECKS.map((check) => (
-              <li
-                key={check.label}
-                className={check.status === 'ok' ? 'text-amber-crt/80' : 'text-amber-crt/40'}
-              >
-                [{check.status}] {check.label}
-              </li>
-            ))}
-          </ul>
-        </section>
+        <div className="flex justify-center py-6">
+          <RecordButton
+            disabled={phase.kind === 'processing'}
+            onRecordingStart={() => setPhase({ kind: 'recording' })}
+            onRecorded={handleRecorded}
+            onError={(message) => setPhase({ kind: 'error', message })}
+          />
+        </div>
 
-        <footer className="text-xs text-amber-crt/40">
-          bark-to-game · phase 0 · <span className="text-signal">●</span> all systems nominal
+        {phase.kind === 'success' && <TokenList result={phase.result} />}
+
+        {phase.kind === 'error' && (
+          <section
+            role="alert"
+            className="border border-red-500/50 bg-red-500/5 p-5 text-sm text-red-400"
+          >
+            <strong className="font-display text-base text-red-400">ERROR </strong>
+            {phase.message}
+          </section>
+        )}
+
+        <footer className="text-xs text-amber-crt/40 pt-8">
+          bark-to-game · phase 1 · librosa + YAMNet
         </footer>
       </div>
     </main>

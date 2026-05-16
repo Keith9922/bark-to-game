@@ -8,6 +8,12 @@ license = { text = "MIT" }
 dependencies = [
     "fastapi[standard]>=0.115",
     "loguru>=0.7",
+    "librosa>=0.10",
+    "numpy>=1.26",
+    "soundfile>=0.12",
+    "tensorflow>=2.18",
+    "tensorflow-hub>=0.16",
+    "tf-keras>=2.18",
 ]
 
 [dependency-groups]
@@ -16,6 +22,7 @@ dev = [
     "pytest-asyncio>=0.23",
     "ruff>=0.5",
     "mypy>=1.10",
+    "types-requests>=2",
 ]
 
 [build-system]
