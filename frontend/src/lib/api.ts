@@ -238,3 +238,31 @@ export async function pollJobUntilDone(jobId: string, opts: PollOptions = {}): P
 export function playUrlFor(playPath: string): string {
   return `${BACKEND_URL}${playPath}`
 }
+
+export interface SessionMeta {
+  id: string
+  name: string
+  created_at: number
+}
+
+export async function listSessions(): Promise<SessionMeta[]> {
+  const response = await fetch(`${BACKEND_URL}/api/sessions`)
+  if (!response.ok) {
+    throw new Error(`list sessions ${response.status}`)
+  }
+  const data = (await response.json()) as { sessions: SessionMeta[] }
+  return data.sessions
+}
+
+export async function createSession(name?: string): Promise<SessionMeta> {
+  const response = await fetch(`${BACKEND_URL}/api/sessions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name ?? null }),
+  })
+  if (!response.ok) {
+    const detail = await response.text().catch(() => response.statusText)
+    throw new Error(`create session ${response.status}: ${detail}`)
+  }
+  return response.json() as Promise<SessionMeta>
+}

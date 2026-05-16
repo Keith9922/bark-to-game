@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import App from './App'
 
-describe('App (Phase 3 — game generation)', () => {
+describe('App (Phase 4 — sessions)', () => {
   it('renders the wordmark', () => {
     render(<App />)
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/bark.*to.*game/i)
@@ -23,8 +23,10 @@ describe('App (Phase 3 — game generation)', () => {
     expect(screen.getByText(/Claude Code writes a playable/i)).toBeInTheDocument()
   })
 
-  it('mentions the asset playbook somewhere', () => {
+  it('shows the session switcher with a default label', () => {
     render(<App />)
-    expect(screen.getAllByText(/playbook/i).length).toBeGreaterThan(0)
+    const button = screen.getByRole('button', { name: /session:/i })
+    expect(button).toBeInTheDocument()
+    expect(button).toHaveTextContent(/default/i)
   })
 })
