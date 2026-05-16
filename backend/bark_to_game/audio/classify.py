@@ -22,10 +22,11 @@ from bark_to_game.audio import yamnet
 
 class Classification(TypedDict):
     type: str
-    confidence: float
+    confidence: float  # the dog-class score (not the top global score)
     source: str  # "yamnet" | "heuristic"
     is_dog_like: bool
-    top_other_class: str  # only meaningful for yamnet source; "" for heuristic
+    top_other_class: str  # YAMNet display name; "" for heuristic
+    top_other_score: float  # YAMNet score of top_other_class; 0.0 for heuristic
 
 
 def _heuristic(y: np.ndarray, sr: int) -> Classification:
@@ -46,6 +47,7 @@ def _heuristic(y: np.ndarray, sr: int) -> Classification:
             source="heuristic",
             is_dog_like=True,
             top_other_class="",
+            top_other_score=0.0,
         )
 
     mean_f0 = float(np.mean(valid))
@@ -63,6 +65,7 @@ def _heuristic(y: np.ndarray, sr: int) -> Classification:
         source="heuristic",
         is_dog_like=True,
         top_other_class="",
+        top_other_score=0.0,
     )
 
 
@@ -76,7 +79,11 @@ def classify(y: np.ndarray, sr: int) -> Classification:
             source="yamnet",
             is_dog_like=result["is_dog_like"],
             top_other_class=result["top_other_class"],
+            top_other_score=result["top_other_score"],
         )
     except Exception as exc:
-        logger.warning(f"YAMNet classification failed, falling back to heuristic: {exc!r}")
+        # ``error`` not ``warning``: in production this means the strict
+        # dog-detection just got silently disabled (the heuristic accepts
+        # everything). Loud logs make a stuck dependency visible in ops.
+        logger.error(f"YAMNet classification failed, falling back to heuristic: {exc!r}")
         return _heuristic(y, sr)

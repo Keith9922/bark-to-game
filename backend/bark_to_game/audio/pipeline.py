@@ -114,10 +114,14 @@ def analyze(audio_bytes: bytes) -> dict[str, Any]:
         cls = classify.classify(segment, SAMPLE_RATE)
         if not cls["is_dog_like"]:
             rejected_count += 1
-            # Confidence here doubles as the YAMNet score for top_other_class.
-            if cls.get("top_other_class") and cls["confidence"] > strongest_other_score:
+            # Pick the most confident non-dog class across all rejected
+            # segments so the UI can tell the user "we heard <X>".
+            if (
+                cls.get("top_other_class")
+                and cls.get("top_other_score", 0.0) > strongest_other_score
+            ):
                 strongest_other_class = cls["top_other_class"]
-                strongest_other_score = cls["confidence"]
+                strongest_other_score = cls["top_other_score"]
             continue
         tok = tokens.make(feats, cls, seg_duration_ms)
         bark_tokens.append(

@@ -106,3 +106,40 @@ async def test_call_claude_drops_non_text_content_blocks(
 
     _patch_client_with(monkeypatch, handler)
     assert await engine._call_claude("s", "u") == "the only text"
+
+
+async def test_call_claude_empty_content_array_raises_clear_error(
+    monkeypatch: pytest.MonkeyPatch, patch_settings: None
+) -> None:
+    """Regression: proxy returns 200 with no text blocks must surface a clear
+    RuntimeError instead of letting json.JSONDecodeError fire downstream."""
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"content": [], "stop_reason": "max_tokens"},
+        )
+
+    _patch_client_with(monkeypatch, handler)
+    with pytest.raises(RuntimeError, match="no text content"):
+        await engine._call_claude("s", "u")
+
+
+async def test_call_claude_concatenates_multiple_text_blocks(
+    monkeypatch: pytest.MonkeyPatch, patch_settings: None
+) -> None:
+    """Sonnet sometimes splits long outputs across multiple text blocks."""
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "content": [
+                    {"type": "text", "text": '{"candi'},
+                    {"type": "text", "text": 'dates":[]}'},
+                ]
+            },
+        )
+
+    _patch_client_with(monkeypatch, handler)
+    assert await engine._call_claude("s", "u") == '{"candidates":[]}'

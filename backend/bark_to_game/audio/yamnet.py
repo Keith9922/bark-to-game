@@ -48,13 +48,25 @@ DOG_SCORE_MIN: float = 0.04
 # common "talking into the mic" case the demo would otherwise classify as BARK.
 NON_DOG_DOMINANT_CLASSES: frozenset[str] = frozenset(
     {
+        # Human voice
         "Speech",
         "Conversation",
         "Narration, monologue",
+        # Music
         "Music",
         "Musical instrument",
         "Singing",
+        # Silence / electronics / ambient noise. Note we deliberately do NOT
+        # include "Inside, small room" / "Echo" — real bark recordings often
+        # co-occur with those, rejecting them would false-negative valid input.
         "Silence",
+        "White noise",
+        "Pink noise",
+        "Hum",
+        "Mains hum",
+        "Static",
+        "Wind",
+        "Busy signal",  # synthesised test fixtures land here
     }
 )
 

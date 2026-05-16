@@ -139,6 +139,14 @@ async def _call_claude(system_prompt: str, user_prompt: str) -> str:
         for block in content
         if isinstance(block, dict) and block.get("type") == "text"
     ]
+    if not text_parts:
+        # Explicit failure beats a downstream JSONDecodeError on "" — the
+        # proxy returned 200 with no text content (often: only tool_use
+        # blocks, or empty content array from a content-filter trip).
+        raise RuntimeError(
+            f"translate API returned no text content: "
+            f"stop_reason={body.get('stop_reason')!r} body={str(body)[:300]}"
+        )
     return "".join(text_parts)
 
 
