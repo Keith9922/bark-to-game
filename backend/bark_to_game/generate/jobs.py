@@ -8,10 +8,13 @@ the browser can still load them via /api/game/{game_id}/play.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import secrets
 import time
 from dataclasses import dataclass, field
 from typing import Literal
+
+from bark_to_game.schemas.game import JobEvent
 
 JobStatus = Literal["pending", "running", "done", "failed", "cancelled"]
 
@@ -27,6 +30,14 @@ class JobState:
     finished_at: float | None = None
     # Reference to the background task so callers can cancel it.
     task: asyncio.Task[None] | None = field(default=None, repr=False)
+    # cwd of the SDK subprocess, captured early so cancel can hard-kill it
+    # if the SDK's own asyncio cleanup chain gets re-cancelled mid-await.
+    subprocess_cwd: str | None = field(default=None, repr=False)
+    # Live event stream consumed by GET /job/{id}/stream. Bounded so a stalled
+    # consumer cannot wedge generation; we drop oldest on overflow.
+    events: asyncio.Queue[JobEvent] = field(
+        default_factory=lambda: asyncio.Queue(maxsize=200), repr=False
+    )
 
     def mark_running(self) -> None:
         self.status = "running"
@@ -48,6 +59,14 @@ class JobState:
 
     def elapsed_s(self) -> float:
         return (self.finished_at or time.time()) - self.created_at
+
+    def publish(self, event: JobEvent) -> None:
+        """Non-blocking publish; drop oldest if the SSE consumer is too slow."""
+        if self.events.full():
+            with contextlib.suppress(asyncio.QueueEmpty):
+                self.events.get_nowait()
+        with contextlib.suppress(asyncio.QueueFull):
+            self.events.put_nowait(event)
 
 
 _REGISTRY: dict[str, JobState] = {}
