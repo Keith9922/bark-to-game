@@ -1,4 +1,14 @@
-"""Translation orchestrator — Verbalized Sampling + diversity-weighted pick."""
+"""Translation orchestrator — Verbalized Sampling + diversity-weighted pick.
+
+Calls Claude via the configured Anthropic Messages API proxy (aipaibox by
+default). This is a separate path from the legacy SDK so it doesn't compete
+with the user's interactive Claude Code window for Max-plan quota — same
+reason the game generator switched in PR #10.
+
+Translate output is small (~700 tokens of JSON) so we use a single
+non-streaming POST instead of the streaming flow `_api_backend.py` uses
+for the long game generation.
+"""
 
 from __future__ import annotations
 
@@ -8,9 +18,17 @@ from collections.abc import Iterable
 from difflib import SequenceMatcher
 from typing import Any, TypedDict, cast
 
+import httpx
 from loguru import logger
 
+from bark_to_game import settings
+from bark_to_game.generate._common import RateLimitedError
 from bark_to_game.translate import archive, prompts, recipes, style_cards
+
+# Translate is non-streaming and short — give it a tighter ceiling than the
+# generate path. If the API takes >60s for a JSON of 5 concepts something is
+# very wrong upstream.
+_REQUEST_TIMEOUT_S = 60.0
 
 
 class Concept(TypedDict):
@@ -77,29 +95,59 @@ def _select(candidates: list[Candidate], recent: list[str]) -> tuple[Candidate, 
 
 
 async def _call_claude(system_prompt: str, user_prompt: str) -> str:
-    """Call Claude via the agent SDK. Tools disabled — pure text in/out."""
-    from claude_agent_sdk import ClaudeAgentOptions, query
+    """Non-streaming Messages API call. Returns the concatenated assistant text.
 
-    options = ClaudeAgentOptions(
-        system_prompt=system_prompt,
-        max_turns=1,
-        allowed_tools=[],
-        permission_mode="bypassPermissions",
-    )
-    chunks: list[str] = []
-    async for message in query(prompt=user_prompt, options=options):
-        content = getattr(message, "content", None)
-        if content is None:
-            continue
-        if isinstance(content, str):
-            chunks.append(content)
-            continue
-        # Assistant messages carry a list of content blocks
-        for block in content:
-            text = getattr(block, "text", None)
-            if isinstance(text, str):
-                chunks.append(text)
-    return "".join(chunks)
+    Raises:
+        RuntimeError: missing key, HTTP non-2xx, or unexpected response shape.
+        RateLimitedError: HTTP 429 from the proxy.
+    """
+    if not settings.API_KEY:
+        raise RuntimeError(
+            "BARK_API_KEY is not set. Set it in backend/.env before calling translate."
+        )
+
+    payload = {
+        "model": settings.API_TRANSLATE_MODEL,
+        "max_tokens": settings.API_TRANSLATE_MAX_OUTPUT_TOKENS,
+        "system": system_prompt,
+        "messages": [{"role": "user", "content": user_prompt}],
+    }
+    headers = {
+        "x-api-key": settings.API_KEY,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+
+    async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_S) as client:
+        resp = await client.post(
+            f"{settings.API_BASE_URL}/v1/messages", headers=headers, json=payload
+        )
+        if resp.status_code == 429:
+            raise RateLimitedError(
+                f"translate API rate-limited (HTTP 429): {resp.text[:300]}",
+                resets_at=None,
+            )
+        if resp.status_code >= 400:
+            raise RuntimeError(
+                f"translate API HTTP {resp.status_code}: {resp.text[:300]}"
+            )
+        body = resp.json()
+
+    content = body.get("content") or []
+    text_parts = [
+        block["text"]
+        for block in content
+        if isinstance(block, dict) and block.get("type") == "text"
+    ]
+    if not text_parts:
+        # Explicit failure beats a downstream JSONDecodeError on "" — the
+        # proxy returned 200 with no text content (often: only tool_use
+        # blocks, or empty content array from a content-filter trip).
+        raise RuntimeError(
+            f"translate API returned no text content: "
+            f"stop_reason={body.get('stop_reason')!r} body={str(body)[:300]}"
+        )
+    return "".join(text_parts)
 
 
 def parse_candidates(raw: str) -> list[Candidate]:
@@ -125,7 +173,7 @@ async def translate(
     audio_hash: str,
     session_id: str = "default",
 ) -> TranslationResult:
-    """Full translation: seeded style pick → SDK call → VS parse → diverse pick → archive."""
+    """Full translation: seeded style pick -> API call -> VS parse -> diverse pick -> archive."""
     seed = _seed_from_hash(audio_hash)
     triplet = style_cards.pick_triplet(seed=seed)
     recipe = recipes.pick_recipe(seed=seed + 1)
@@ -144,7 +192,8 @@ async def translate(
     logger.info(
         f"translate: hash={audio_hash} art={triplet['art']['name']} "
         f"mechanic={triplet['mechanic']['name']} mood={triplet['mood']['name']} "
-        f"recipe={recipe['name']} avoid={len(recent)}"
+        f"recipe={recipe['name']} model={settings.API_TRANSLATE_MODEL} "
+        f"avoid={len(recent)}"
     )
     raw = await _call_claude(system_prompt, user_prompt)
     candidates = parse_candidates(raw)

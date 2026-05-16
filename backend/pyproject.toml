@@ -14,9 +14,10 @@ dependencies = [
     "tensorflow>=2.18",
     "tensorflow-hub>=0.16",
     "tf-keras>=2.18",
-    # tensorflow_hub uses pkg_resources internally; Python 3.13 no longer
-    # ships setuptools by default, so we depend on it explicitly.
-    "setuptools>=75",
+    # tensorflow_hub uses pkg_resources internally. Python 3.13 no longer
+    # ships setuptools by default, AND setuptools >= 81 stopped vendoring
+    # pkg_resources by default — pinning < 81 keeps the import path alive.
+    "setuptools>=75,<81",
     "claude-agent-sdk>=0.2.82",
     # Used by cancel_job to walk the child process tree and SIGKILL any
     # SDK subprocess the asyncio cleanup chain failed to terminate.

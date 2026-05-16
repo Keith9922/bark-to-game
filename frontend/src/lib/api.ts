@@ -27,12 +27,24 @@ export interface SessionSummary {
   entropy: number
 }
 
+export type DetectionState = 'bark' | 'silent' | 'not_a_bark'
+
 export interface AnalyzeResponse {
   audio_hash: string
   duration_ms: number
   sample_count: number
   tokens: TokenSegment[]
   summary: SessionSummary
+  // What the backend's audio classifier concluded:
+  //   'bark'       — at least one segment scored as dog-like; proceed
+  //   'silent'     — audio was effectively silent
+  //   'not_a_bark' — audio was something else (Speech / Music / etc.)
+  detection: DetectionState
+  // YAMNet display name of the dominant non-dog class (e.g. "Speech")
+  // when detection === 'not_a_bark'. Empty otherwise.
+  detected_class: string
+  // Diagnostic: how many segments were rejected by the dog-likeness check.
+  rejected_segment_count: number
 }
 
 function writeAscii(view: DataView, offset: number, ascii: string): void {
