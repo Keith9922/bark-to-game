@@ -165,3 +165,76 @@ export async function postTranslate(
 
   return response.json() as Promise<TranslateResponse>
 }
+
+export type JobStatus = 'pending' | 'running' | 'done' | 'failed'
+
+export interface GenerateAccepted {
+  job_id: string
+  status: JobStatus
+  status_url: string
+}
+
+export interface JobView {
+  job_id: string
+  status: JobStatus
+  elapsed_s: number
+  game_id?: string | null
+  summary?: string | null
+  play_url?: string | null
+  error?: string | null
+}
+
+export async function postGenerate(
+  analyzeResult: AnalyzeResponse,
+  translation: TranslateResponse,
+  sessionId: string = 'default',
+): Promise<GenerateAccepted> {
+  const response = await fetch(`${BACKEND_URL}/api/game/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      concept: translation.chosen,
+      style_triplet: translation.style_triplet,
+      visual_recipe: translation.visual_recipe,
+      audio_hash: analyzeResult.audio_hash,
+      session_id: sessionId,
+    }),
+  })
+
+  if (response.status !== 202) {
+    const detail = await response.text().catch(() => response.statusText)
+    throw new Error(`generate ${response.status}: ${detail}`)
+  }
+
+  return response.json() as Promise<GenerateAccepted>
+}
+
+export async function getJob(jobId: string): Promise<JobView> {
+  const response = await fetch(`${BACKEND_URL}/api/game/job/${jobId}`)
+  if (!response.ok) {
+    const detail = await response.text().catch(() => response.statusText)
+    throw new Error(`job ${response.status}: ${detail}`)
+  }
+  return response.json() as Promise<JobView>
+}
+
+export interface PollOptions {
+  intervalMs?: number
+  signal?: AbortSignal
+  onProgress?: (job: JobView) => void
+}
+
+export async function pollJobUntilDone(jobId: string, opts: PollOptions = {}): Promise<JobView> {
+  const interval = opts.intervalMs ?? 5000
+  while (true) {
+    if (opts.signal?.aborted) throw new DOMException('poll aborted', 'AbortError')
+    const job = await getJob(jobId)
+    opts.onProgress?.(job)
+    if (job.status === 'done' || job.status === 'failed') return job
+    await new Promise((r) => setTimeout(r, interval))
+  }
+}
+
+export function playUrlFor(playPath: string): string {
+  return `${BACKEND_URL}${playPath}`
+}

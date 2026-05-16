@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import App from './App'
 
-describe('App (Phase 2 — translation)', () => {
+describe('App (Phase 3 — game generation)', () => {
   it('renders the wordmark', () => {
     render(<App />)
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/bark.*to.*game/i)
@@ -18,13 +18,13 @@ describe('App (Phase 2 — translation)', () => {
     expect(screen.getByRole('button', { name: /hold to bark/i })).toBeInTheDocument()
   })
 
-  it('mentions Verbalized Sampling in the intro paragraph', () => {
+  it('mentions Claude Code in the intro paragraph', () => {
     render(<App />)
-    expect(screen.getByText(/Verbalized Sampling across a rotating/i)).toBeInTheDocument()
+    expect(screen.getByText(/Claude Code writes a playable/i)).toBeInTheDocument()
   })
 
-  it('mentions the diversity guarantee', () => {
+  it('mentions the asset playbook somewhere', () => {
     render(<App />)
-    expect(screen.getByText(/diversity guaranteed/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/playbook/i).length).toBeGreaterThan(0)
   })
 })
