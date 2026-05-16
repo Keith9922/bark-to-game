@@ -168,9 +168,7 @@ def test_cancel_in_flight_job(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_cancel_already_done_job_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
     async def fast(**_: Any) -> generator.GenerationResult:
-        return generator.GenerationResult(
-            game_id="abc", game_path="x", summary="s", cwd="d"
-        )
+        return generator.GenerationResult(game_id="abc", game_path="x", summary="s", cwd="d")
 
     from bark_to_game.routes import game as game_route
 

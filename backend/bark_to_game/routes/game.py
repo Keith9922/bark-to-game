@@ -11,6 +11,7 @@ from loguru import logger
 from bark_to_game.generate import jobs
 from bark_to_game.generate.generator import generate
 from bark_to_game.generate.jobs import JobState
+from bark_to_game.history import manager as history
 from bark_to_game.paths import GENERATED_GAMES_DIR
 from bark_to_game.schemas.game import (
     GenerateAccepted,
@@ -45,6 +46,26 @@ def _job_view(job: JobState) -> JobView:
     )
 
 
+def _record_history(job: JobState, req: GenerateRequest, game_id: str) -> None:
+    try:
+        history.record(
+            history.HistoryEntry(
+                game_id=game_id,
+                session_id=req.session_id,
+                created_at=job.finished_at or job.created_at,
+                title=req.concept.title,
+                tagline=req.concept.tagline,
+                audio_hash=req.audio_hash,
+                visual_recipe=req.visual_recipe,
+                art=req.style_triplet.art.name,
+                mechanic=req.style_triplet.mechanic.name,
+                mood=req.style_triplet.mood.name,
+            )
+        )
+    except Exception as exc:  # history is auxiliary — never fail the job over it
+        logger.warning(f"job {job.job_id}: history record failed - {exc!r}")
+
+
 async def _run_job(job: JobState, req: GenerateRequest) -> None:
     job.mark_running()
     logger.info(f"job {job.job_id}: running (recipe={req.visual_recipe})")
@@ -55,6 +76,7 @@ async def _run_job(job: JobState, req: GenerateRequest) -> None:
             visual_recipe_name=req.visual_recipe,
         )
         job.mark_done(game_id=result["game_id"], summary=result["summary"])
+        _record_history(job, req, result["game_id"])
         logger.info(f"job {job.job_id}: done game_id={result['game_id']} ({job.elapsed_s():.0f}s)")
     except asyncio.CancelledError:
         # The DELETE endpoint cancelled us. Surface that explicitly to the client

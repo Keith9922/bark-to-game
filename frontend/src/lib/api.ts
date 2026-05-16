@@ -279,3 +279,34 @@ export async function createSession(name?: string): Promise<SessionMeta> {
   }
   return response.json() as Promise<SessionMeta>
 }
+
+export interface HistoryEntry {
+  game_id: string
+  session_id: string
+  created_at: number
+  title: string
+  tagline: string
+  audio_hash: string
+  visual_recipe: string
+  art: string
+  mechanic: string
+  mood: string
+  has_audio: boolean
+  play_url: string
+  audio_url: string | null
+}
+
+export async function fetchHistory(sessionId: string): Promise<HistoryEntry[]> {
+  const response = await fetch(
+    `${BACKEND_URL}/api/history?session_id=${encodeURIComponent(sessionId)}`,
+  )
+  if (!response.ok) {
+    throw new Error(`history ${response.status}`)
+  }
+  const data = (await response.json()) as { entries: HistoryEntry[] }
+  return data.entries
+}
+
+export function audioPlayUrl(audioPath: string): string {
+  return `${BACKEND_URL}${audioPath}`
+}
