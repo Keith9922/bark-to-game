@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import ConceptCard from './components/ConceptCard'
 import GameFrame, { type PlayableGame } from './components/GameFrame'
+import HistoryPanel from './components/HistoryPanel'
 import ProgressBar from './components/ProgressBar'
 import Recorder from './components/Recorder'
 import SessionSwitcher from './components/SessionSwitcher'
@@ -99,6 +100,7 @@ function conceptFromPhase(phase: Phase): TranslateResponse | undefined {
 function App() {
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
   const [sessionId] = useCurrentSessionId()
+  const [historyRefreshKey, setHistoryRefreshKey] = useState(0)
   const generationCancelledRef = useRef(false)
 
   // Tick the client-side elapsed counter for analyze + translate phases.
@@ -203,6 +205,7 @@ function App() {
             play_url: final.play_url,
           },
         })
+        setHistoryRefreshKey((k) => k + 1)
       } else if (final.status === 'cancelled') {
         reset()
       } else {
@@ -332,6 +335,8 @@ function App() {
         )}
 
         {phase.kind === 'playable' && <GameFrame game={phase.game} onRestart={reset} />}
+
+        <HistoryPanel sessionId={sessionId} refreshKey={historyRefreshKey} />
 
         {phase.kind === 'error' && (
           <section
