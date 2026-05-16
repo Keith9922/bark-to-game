@@ -173,6 +173,47 @@ async def test_api_generate_overloaded_error_in_stream(
         )
 
 
+async def test_api_generate_handles_inner_backticks_in_html(
+    monkeypatch: pytest.MonkeyPatch, patch_recipes: None, patch_settings: None
+) -> None:
+    """Regression: a stray ``` line inside the HTML body must not truncate it."""
+    inner = (
+        "<!DOCTYPE html><html><script>\n"
+        "const sample = `\n"
+        "  some embedded markdown\n"
+        "  ```\n"  # <-- stray fence inside a JS template literal
+        "  more text\n"
+        "`;\n"
+        "</script></html>"
+    )
+    body = (
+        "Here's the game:\n\n"
+        "```html\n"
+        f"{inner}\n"
+        "```\n\n"
+        "```markdown\n"
+        "A game with backticks.\n"
+        "```\n"
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=_sse_body(body))
+
+    _patch_client_with(monkeypatch, handler)
+
+    result = await _api_backend.generate_via_api(
+        concept=_CONCEPT,
+        style_triplet_summary="x",
+        visual_recipe_name="pixel_crt",
+    )
+    written = Path(result["game_path"]).read_text()
+    assert "</html>" in written, (
+        "HTML block truncated at inner backticks — fence parser must anchor "
+        "to start-of-line and walk pairs sequentially"
+    )
+    assert result["summary"] == "A game with backticks."
+
+
 async def test_api_generate_missing_html_block(
     monkeypatch: pytest.MonkeyPatch, patch_recipes: None, patch_settings: None
 ) -> None:

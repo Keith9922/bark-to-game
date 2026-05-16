@@ -87,5 +87,5 @@ def new_game_dir(
     game_dir = GENERATED_GAMES_DIR / game_id
     game_dir.mkdir(parents=True, exist_ok=True)
     claude_md = build_claude_md(concept, style_triplet_summary, visual_recipe_name)
-    (game_dir / "CLAUDE.md").write_text(claude_md)
+    (game_dir / "CLAUDE.md").write_text(claude_md, encoding="utf-8")
     return game_id, game_dir, claude_md

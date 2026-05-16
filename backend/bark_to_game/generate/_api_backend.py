@@ -21,6 +21,7 @@ import json
 import re
 import time
 from collections.abc import Callable
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -74,9 +75,11 @@ One to three lines describing what you built and how to play.
 ```
 """
 
-# Tolerant of optional language tags and CRLF / trailing whitespace.
-_HTML_BLOCK_RE = re.compile(r"```(?:html|HTML)?\s*\n(.*?)\n```", re.DOTALL)
-_MD_BLOCK_RE = re.compile(r"```(?:markdown|md)?\s*\n(.*?)\n```", re.DOTALL)
+# Fence pattern — match only opening fences that are alone on a line (start
+# anchored, optional language tag, end of line). Closing fences are matched
+# the same way to dodge stray ``` inside JS template literals etc.
+_FENCE_OPEN_RE = re.compile(r"^```([A-Za-z]*)\s*$", re.MULTILINE)
+_FENCE_CLOSE_RE = re.compile(r"^```\s*$", re.MULTILINE)
 
 
 async def generate_via_api(
@@ -119,15 +122,18 @@ async def generate_via_api(
 
     full_text = await _stream_messages(payload, headers, publish)
 
-    html_match = _HTML_BLOCK_RE.search(full_text)
-    if not html_match:
+    blocks = _extract_fenced_blocks(full_text)
+    html_block = next(
+        (b for b in blocks if b["lang"].lower() in ("html", "")), None
+    )
+    if html_block is None:
         raise RuntimeError(
             f"API output did not contain a ```html``` code block "
-            f"(got {len(full_text)} chars)"
+            f"(got {len(full_text)} chars, {len(blocks)} fenced blocks found)"
         )
-    game_html = html_match.group(1).strip()
+    game_html = html_block["body"].strip()
     game_path = game_dir / "game.html"
-    game_path.write_text(game_html)
+    game_path.write_text(game_html, encoding="utf-8")
     if publish:
         publish(
             JobEvent(
@@ -137,11 +143,19 @@ async def generate_via_api(
             )
         )
 
-    summary_match = _MD_BLOCK_RE.search(full_text, pos=html_match.end())
-    summary = (
-        summary_match.group(1).strip()[:300] if summary_match else "(no summary)"
+    md_block = next(
+        (
+            b
+            for b in blocks
+            if b["start"] > html_block["start"]
+            and b["lang"].lower() in ("markdown", "md", "")
+        ),
+        None,
     )
-    (game_dir / "SUMMARY.md").write_text(summary)
+    summary = (
+        md_block["body"].strip()[:300] if md_block is not None else "(no summary)"
+    )
+    (game_dir / "SUMMARY.md").write_text(summary, encoding="utf-8")
 
     logger.info(
         f"generate-api: game_id={game_id} html_bytes={len(game_html)} summary_bytes={len(summary)}"
@@ -226,6 +240,37 @@ async def _stream_messages(
     return "".join(full_text_parts)
 
 
+def _extract_fenced_blocks(text: str) -> list[dict[str, Any]]:
+    r"""Walk fence-open / fence-close pairs and return non-overlapping blocks.
+
+    Each entry: ``{"lang": <str>, "start": <int>, "body": <str>}``.
+
+    Pairs sequentially rather than relying on a non-greedy regex over the
+    whole text, so a stray triple-backtick line inside a JS template literal
+    can't truncate the captured HTML at the wrong place. We assume Claude
+    follows the system prompt's "exactly two fenced blocks" instruction —
+    if it ever nests blocks inside the html block, the inner closer will
+    end this block early, but that's an upstream-prompt issue.
+    """
+    blocks: list[dict[str, Any]] = []
+    cursor = 0
+    while True:
+        open_match = _FENCE_OPEN_RE.search(text, pos=cursor)
+        if open_match is None:
+            return blocks
+        body_start = open_match.end() + 1  # skip the trailing newline
+        close_match = _FENCE_CLOSE_RE.search(text, pos=body_start)
+        if close_match is None:
+            return blocks
+        body = text[body_start : close_match.start()].rstrip("\n")
+        blocks.append({
+            "lang": open_match.group(1),
+            "start": open_match.start(),
+            "body": body,
+        })
+        cursor = close_match.end()
+
+
 def _handle_event(
     event: dict[str, Any],
     text_parts: list[str],
@@ -263,8 +308,6 @@ def _resets_at_from_headers(headers: httpx.Headers) -> int | None:
         # usually delta seconds.
         try:
             if raw.endswith("Z") or "T" in raw:
-                from datetime import datetime
-
                 return int(datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp())
             return int(time.time()) + int(raw)
         except (TypeError, ValueError):
