@@ -2,6 +2,7 @@ import { useState } from 'react'
 import ConceptCard from './components/ConceptCard'
 import GameFrame, { type PlayableGame } from './components/GameFrame'
 import RecordButton from './components/RecordButton'
+import SessionSwitcher from './components/SessionSwitcher'
 import TokenList from './components/TokenList'
 import {
   pollJobUntilDone,
@@ -12,6 +13,7 @@ import {
   type JobView,
   type TranslateResponse,
 } from './lib/api'
+import { useCurrentSessionId } from './lib/useSession'
 
 type Phase =
   | { kind: 'idle' }
@@ -106,6 +108,7 @@ function conceptFromPhase(phase: Phase): TranslateResponse | undefined {
 
 function App() {
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
+  const [sessionId] = useCurrentSessionId()
 
   const handleRecorded = async (blob: Blob) => {
     setPhase({ kind: 'analyzing' })
@@ -123,7 +126,7 @@ function App() {
     setPhase({ kind: 'translating', tokens })
     let concept: TranslateResponse
     try {
-      concept = await postTranslate(tokens)
+      concept = await postTranslate(tokens, sessionId)
     } catch (err) {
       setPhase({
         kind: 'error',
@@ -143,7 +146,7 @@ function App() {
     })
 
     try {
-      const accepted = await postGenerate(tokens, concept)
+      const accepted = await postGenerate(tokens, concept, sessionId)
       setPhase({
         kind: 'generating',
         tokens,
@@ -208,12 +211,18 @@ function App() {
     <main className="min-h-dvh bg-black text-amber-crt flex flex-col items-center px-6 py-12 sm:py-16">
       <div className="w-full max-w-3xl space-y-10">
         <header className="space-y-5">
-          <div className="flex items-center gap-3 text-xs sm:text-sm text-amber-crt/60 uppercase tracking-widest">
-            <span
-              aria-hidden
-              className={`inline-block size-2 rounded-full ${statusDotClass(phase)}`}
+          <div className="flex flex-wrap items-center justify-between gap-3 text-xs sm:text-sm text-amber-crt/60 uppercase tracking-widest">
+            <div className="flex items-center gap-3">
+              <span
+                aria-hidden
+                className={`inline-block size-2 rounded-full ${statusDotClass(phase)}`}
+              />
+              <span>{statusLine(phase)}</span>
+            </div>
+            <SessionSwitcher
+              disabled={recordDisabled}
+              onSessionChange={() => setPhase({ kind: 'idle' })}
             />
-            <span>{statusLine(phase)}</span>
           </div>
           <h1 className="font-display text-5xl sm:text-6xl md:text-7xl leading-none tracking-tight text-amber-crt">
             bark<span className="text-signal">_</span>to<span className="text-signal">_</span>game
