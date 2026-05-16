@@ -7,12 +7,13 @@ the browser can still load them via /api/game/{game_id}/play.
 
 from __future__ import annotations
 
+import asyncio
 import secrets
 import time
 from dataclasses import dataclass, field
 from typing import Literal
 
-JobStatus = Literal["pending", "running", "done", "failed"]
+JobStatus = Literal["pending", "running", "done", "failed", "cancelled"]
 
 
 @dataclass
@@ -24,6 +25,8 @@ class JobState:
     error: str | None = None
     created_at: float = field(default_factory=time.time)
     finished_at: float | None = None
+    # Reference to the background task so callers can cancel it.
+    task: asyncio.Task[None] | None = field(default=None, repr=False)
 
     def mark_running(self) -> None:
         self.status = "running"
@@ -37,6 +40,10 @@ class JobState:
     def mark_failed(self, error: str) -> None:
         self.error = error
         self.status = "failed"
+        self.finished_at = time.time()
+
+    def mark_cancelled(self) -> None:
+        self.status = "cancelled"
         self.finished_at = time.time()
 
     def elapsed_s(self) -> float:

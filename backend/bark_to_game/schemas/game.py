@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from bark_to_game.schemas.concept import Concept, StyleTriplet
 
-JobStatus = Literal["pending", "running", "done", "failed"]
+JobStatus = Literal["pending", "running", "done", "failed", "cancelled"]
 
 
 class GenerateRequest(BaseModel):

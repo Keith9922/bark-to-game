@@ -53,7 +53,7 @@ def _poll(job_id: str, max_attempts: int = 50) -> dict[str, Any]:
         response = client.get(f"/api/game/job/{job_id}")
         assert response.status_code == 200
         data = response.json()
-        if data["status"] in {"done", "failed"}:
+        if data["status"] in {"done", "failed", "cancelled"}:
             return data
         # asyncio.sleep yields back to the event loop so the background task can advance.
         asyncio.get_event_loop().run_until_complete(asyncio.sleep(0.02))
@@ -136,3 +136,55 @@ def test_play_route_404_unknown(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
 def test_play_route_rejects_path_traversal() -> None:
     response = client.get("/api/game/..%2Fetc/play")
     assert response.status_code in (400, 404)
+
+
+def test_cancel_in_flight_job(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A still-running job can be cancelled; subsequent polls report 'cancelled'."""
+
+    async def slow_generate(**_: Any) -> generator.GenerationResult:
+        await asyncio.sleep(10)  # long enough that DELETE catches it
+        raise AssertionError("should have been cancelled before reaching here")
+
+    from bark_to_game.routes import game as game_route
+
+    monkeypatch.setattr(game_route, "generate", slow_generate)
+
+    start = client.post("/api/game/generate", json=_request_body())
+    assert start.status_code == 202
+    job_id = start.json()["job_id"]
+
+    # Yield once so the task transitions to 'running'.
+    asyncio.get_event_loop().run_until_complete(asyncio.sleep(0.05))
+
+    cancel = client.delete(f"/api/game/job/{job_id}")
+    assert cancel.status_code == 200
+    assert cancel.json()["status"] == "cancelled"
+
+    # Subsequent GET is consistent.
+    status_check = client.get(f"/api/game/job/{job_id}").json()
+    assert status_check["status"] == "cancelled"
+    assert status_check["play_url"] is None
+
+
+def test_cancel_already_done_job_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fast(**_: Any) -> generator.GenerationResult:
+        return generator.GenerationResult(
+            game_id="abc", game_path="x", summary="s", cwd="d"
+        )
+
+    from bark_to_game.routes import game as game_route
+
+    monkeypatch.setattr(game_route, "generate", fast)
+
+    start = client.post("/api/game/generate", json=_request_body())
+    job_id = start.json()["job_id"]
+    _poll(job_id)  # let it finish
+
+    cancel = client.delete(f"/api/game/job/{job_id}")
+    assert cancel.status_code == 200
+    assert cancel.json()["status"] == "done"
+
+
+def test_cancel_unknown_job_404() -> None:
+    response = client.delete("/api/game/job/nope")
+    assert response.status_code == 404

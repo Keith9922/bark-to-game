@@ -56,6 +56,12 @@ async def _run_job(job: JobState, req: GenerateRequest) -> None:
         )
         job.mark_done(game_id=result["game_id"], summary=result["summary"])
         logger.info(f"job {job.job_id}: done game_id={result['game_id']} ({job.elapsed_s():.0f}s)")
+    except asyncio.CancelledError:
+        # The DELETE endpoint cancelled us. Surface that explicitly to the client
+        # instead of letting the propagating cancellation kill the FastAPI worker.
+        job.mark_cancelled()
+        logger.info(f"job {job.job_id}: cancelled ({job.elapsed_s():.0f}s)")
+        raise
     except Exception as exc:
         job.mark_failed(str(exc))
         logger.warning(f"job {job.job_id}: failed ({job.elapsed_s():.0f}s) - {exc!r}")
@@ -66,6 +72,7 @@ async def start_generation(req: GenerateRequest) -> GenerateAccepted:
     """Fire-and-forget. Client polls GET /api/game/job/{job_id} for state."""
     job = jobs.new_job()
     task = asyncio.create_task(_run_job(job, req))
+    job.task = task
     _BACKGROUND_TASKS.add(task)
     task.add_done_callback(_BACKGROUND_TASKS.discard)
     return GenerateAccepted(
@@ -80,6 +87,25 @@ async def get_job_status(job_id: str) -> JobView:
     job = jobs.get(job_id)
     if job is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"unknown job {job_id}")
+    return _job_view(job)
+
+
+@router.delete("/job/{job_id}")
+async def cancel_job(job_id: str) -> JobView:
+    """Stop an in-flight generation. Idempotent: already-finished jobs return
+    their current state unchanged."""
+    job = jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"unknown job {job_id}")
+    if job.status in ("done", "failed", "cancelled"):
+        return _job_view(job)
+
+    if job.task is not None and not job.task.done():
+        job.task.cancel()
+    # Mark cancelled here too so a quick re-GET sees the right state even if the
+    # task hasn't yielded to handle CancelledError yet.
+    job.mark_cancelled()
+    logger.info(f"job {job_id}: cancel requested")
     return _job_view(job)
 
 

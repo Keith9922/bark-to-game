@@ -65,10 +65,10 @@ export default function SessionSwitcher({ disabled, onSessionChange }: Props) {
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="text-xs text-amber-crt/60 uppercase tracking-widest border border-amber-crt/30 px-3 py-1.5 hover:bg-amber-crt/10 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
+        className="text-xs text-amber-crt/60 border border-amber-crt/30 px-3 py-1.5 hover:bg-amber-crt/10 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
       >
-        <span>session:</span>
-        <span className="text-signal normal-case tracking-normal">{label}</span>
+        <span>话题</span>
+        <span className="text-signal">{label}</span>
         <span aria-hidden className="text-amber-crt/60">
           {open ? '▴' : '▾'}
         </span>
@@ -76,10 +76,10 @@ export default function SessionSwitcher({ disabled, onSessionChange }: Props) {
       {open && (
         <div
           role="menu"
-          className="absolute right-0 mt-2 border border-amber-crt/30 bg-black z-20 min-w-56 max-h-72 overflow-y-auto"
+          className="absolute left-0 sm:left-auto sm:right-0 mt-2 border border-amber-crt/30 bg-black z-20 min-w-56 max-w-[calc(100vw-3rem)] max-h-72 overflow-y-auto shadow-lg shadow-amber-crt/10"
         >
           {sessions.length === 0 && (
-            <div className="px-3 py-2 text-xs text-amber-crt/50">loading…</div>
+            <div className="px-3 py-2 text-xs text-amber-crt/50">载入中…</div>
           )}
           {sessions.map((s) => (
             <button
@@ -102,7 +102,7 @@ export default function SessionSwitcher({ disabled, onSessionChange }: Props) {
             onClick={handleNew}
             className="block w-full text-left px-3 py-2 text-xs text-signal border-t border-amber-crt/20 hover:bg-amber-crt/10 disabled:opacity-50"
           >
-            {busy ? '…' : '+ new session'}
+            {busy ? '…' : '+ 新建话题'}
           </button>
         </div>
       )}
