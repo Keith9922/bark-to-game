@@ -21,6 +21,7 @@ dependencies = [
     # Used by cancel_job to walk the child process tree and SIGKILL any
     # SDK subprocess the asyncio cleanup chain failed to terminate.
     "psutil>=5.9",
+    "python-dotenv>=1.2.2",
 ]
 
 [dependency-groups]

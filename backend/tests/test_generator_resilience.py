@@ -10,12 +10,13 @@ from typing import Any
 
 import pytest
 
+from bark_to_game.generate import _sdk_backend as sdk_backend
 from bark_to_game.generate import generator
 from bark_to_game.schemas.game import JobEvent
 
 # ---- stub claude_agent_sdk module ----------------------------------------
 #
-# generator._drain imports RateLimitEvent at call time. We monkeypatch the
+# sdk_backend._drain imports RateLimitEvent at call time. We monkeypatch the
 # module so the test doesn't depend on the real SDK and so we can fabricate
 # rate-limit messages with arbitrary payloads.
 
@@ -54,7 +55,7 @@ def _stream(items: list[Any]) -> AsyncIterator[Any]:
 async def test_drain_raises_on_rate_limit_rejected() -> None:
     events: list[JobEvent] = []
     with pytest.raises(generator.RateLimitedError) as exc_info:
-        await generator._drain(
+        await sdk_backend._drain(
             _stream([_FakeRateLimitEvent(status="rejected", resets_at=1700001234)]),
             publish=events.append,
         )
@@ -67,7 +68,7 @@ async def test_drain_raises_on_rate_limit_rejected() -> None:
 
 async def test_drain_ignores_allowed_warning_keeps_going() -> None:
     events: list[JobEvent] = []
-    write_calls = await generator._drain(
+    write_calls = await sdk_backend._drain(
         _stream([_FakeRateLimitEvent(status="allowed_warning")]),
         publish=events.append,
     )
@@ -76,14 +77,14 @@ async def test_drain_ignores_allowed_warning_keeps_going() -> None:
 
 
 async def test_drain_watchdog_fires_on_idle_stream(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(generator, "IDLE_TIMEOUT_S", 0.05)
+    monkeypatch.setattr(sdk_backend, "IDLE_TIMEOUT_S", 0.05)
 
     async def _never() -> AsyncIterator[Any]:
         await asyncio.sleep(10)
         yield None  # never reached
 
     with pytest.raises(generator.GenerationStalledError):
-        await generator._drain(_never(), publish=None)
+        await sdk_backend._drain(_never(), publish=None)
 
 
 # The drain function publishes a "message" event for any class named
@@ -95,7 +96,7 @@ class AssistantMessage:
 
 async def test_drain_completes_normally_on_exhausted_stream() -> None:
     events: list[JobEvent] = []
-    write_calls = await generator._drain(
+    write_calls = await sdk_backend._drain(
         _stream([AssistantMessage()]),
         publish=events.append,
     )
@@ -113,7 +114,7 @@ async def test_drain_counts_write_tool_calls_and_publishes() -> None:
     class AssistantMessage:  # shadows the outer one — intentional
         content = [_Block()]
 
-    write_calls = await generator._drain(
+    write_calls = await sdk_backend._drain(
         _stream([AssistantMessage()]),
         publish=events.append,
     )
