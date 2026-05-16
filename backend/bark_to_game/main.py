@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from bark_to_game import __version__
-from bark_to_game.routes import audio
+from bark_to_game.routes import audio, concept
 
 app = FastAPI(
     title="bark-to-game",
@@ -22,6 +22,7 @@ app.add_middleware(
 )
 
 app.include_router(audio.router)
+app.include_router(concept.router)
 
 
 class Health(BaseModel):

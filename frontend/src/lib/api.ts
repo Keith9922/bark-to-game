@@ -116,3 +116,52 @@ export async function postAnalyze(audio: Blob): Promise<AnalyzeResponse> {
 
   return response.json() as Promise<AnalyzeResponse>
 }
+
+export interface Concept {
+  title: string
+  tagline: string
+  player: string
+  core_mechanic: string
+  win_condition: string
+  fail_condition: string
+  visual_summary: string
+  audio_summary: string
+}
+
+export interface StyleCardRef {
+  name: string
+  description: string
+}
+
+export interface TranslateResponse {
+  chosen: Concept
+  chosen_probability: number
+  chosen_score: number
+  candidate_count: number
+  style_triplet: { art: StyleCardRef; mechanic: StyleCardRef; mood: StyleCardRef }
+  visual_recipe: string
+  avoided_summaries: string[]
+}
+
+export async function postTranslate(
+  analyzeResult: AnalyzeResponse,
+  sessionId: string = 'default',
+): Promise<TranslateResponse> {
+  const response = await fetch(`${BACKEND_URL}/api/concept/translate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      tokens: analyzeResult.tokens,
+      summary: analyzeResult.summary,
+      audio_hash: analyzeResult.audio_hash,
+      session_id: sessionId,
+    }),
+  })
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => response.statusText)
+    throw new Error(`translate ${response.status}: ${detail}`)
+  }
+
+  return response.json() as Promise<TranslateResponse>
+}
