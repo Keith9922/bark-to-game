@@ -9,5 +9,7 @@ REPO_ROOT: Path = Path(__file__).resolve().parents[2]
 
 STYLE_CARDS_DIR: Path = REPO_ROOT / "style_cards"
 VISUAL_RECIPES_DIR: Path = REPO_ROOT / "visual_recipes"
+GAME_ASSETS_DIR: Path = REPO_ROOT / "game_assets"
 DATA_DIR: Path = REPO_ROOT / "data"
 ARCHIVE_DIR: Path = DATA_DIR / "archive"
+GENERATED_GAMES_DIR: Path = REPO_ROOT / "generated-games"
