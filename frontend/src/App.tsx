@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import ConceptCard from './components/ConceptCard'
+import EventStream from './components/EventStream'
 import GameFrame, { type PlayableGame } from './components/GameFrame'
 import HistoryPanel from './components/HistoryPanel'
 import ProgressBar from './components/ProgressBar'
@@ -325,13 +326,16 @@ function App() {
         {concept && <ConceptCard translation={concept} />}
 
         {phase.kind === 'generating' && (
-          <ProgressBar
-            label="正在生成游戏 · BUILDING"
-            caption={`Claude Code 正在按照上面的概念 + 视觉配方写一个独立的 HTML 游戏文件。通常 1–3 分钟。${phase.jobId ? `任务编号 ${phase.jobId}。` : ''}`}
-            elapsedS={phase.elapsedS}
-            estimateS={120}
-            onCancel={handleCancelGeneration}
-          />
+          <div className="space-y-3">
+            <ProgressBar
+              label="正在生成游戏 · BUILDING"
+              caption={`Claude Code 正在按照上面的概念 + 视觉配方写一个独立的 HTML 游戏文件。通常 1–3 分钟，被限流时可能更长。${phase.jobId ? `任务编号 ${phase.jobId}。` : ''}`}
+              elapsedS={phase.elapsedS}
+              estimateS={120}
+              onCancel={handleCancelGeneration}
+            />
+            {phase.jobId && <EventStream jobId={phase.jobId} />}
+          </div>
         )}
 
         {phase.kind === 'playable' && <GameFrame game={phase.game} onRestart={reset} />}

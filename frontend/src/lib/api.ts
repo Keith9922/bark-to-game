@@ -172,6 +172,23 @@ export interface GenerateAccepted {
   job_id: string
   status: JobStatus
   status_url: string
+  stream_url: string
+}
+
+export type JobEventType =
+  | 'hello'
+  | 'message'
+  | 'write'
+  | 'rate_limit'
+  | 'heartbeat'
+  | 'done'
+  | 'failed'
+  | 'cancelled'
+
+export interface JobEvent {
+  type: JobEventType
+  ts: number
+  data: Record<string, unknown>
 }
 
 export interface JobView {
@@ -246,6 +263,58 @@ export async function cancelJob(jobId: string): Promise<JobView> {
     throw new Error(`cancel ${response.status}: ${detail}`)
   }
   return response.json() as Promise<JobView>
+}
+
+const TERMINAL_EVENT_TYPES = new Set<JobEventType>(['done', 'failed', 'cancelled'])
+
+/**
+ * Open a Server-Sent Events stream for live job progress.
+ *
+ * The backend emits one frame per SDK event (assistant message, file write,
+ * rate-limit notice), plus a heartbeat every 5 s and a terminal frame
+ * (done / failed / cancelled). EventSource auto-reconnects on transient
+ * network errors; we surface non-terminal errors via ``onError``.
+ *
+ * Returns a cleanup function — call it to close the connection (e.g. from
+ * a useEffect cleanup or when the user navigates away).
+ */
+export function openJobStream(
+  jobId: string,
+  handlers: {
+    onEvent: (event: JobEvent) => void
+    onError?: (err: Event) => void
+  },
+): () => void {
+  const source = new EventSource(`${BACKEND_URL}/api/game/job/${jobId}/stream`)
+
+  const dispatch = (raw: MessageEvent) => {
+    try {
+      const event = JSON.parse(raw.data) as JobEvent
+      handlers.onEvent(event)
+      if (TERMINAL_EVENT_TYPES.has(event.type)) {
+        source.close()
+      }
+    } catch {
+      /* malformed frame — ignore; the polling loop is authoritative */
+    }
+  }
+
+  const eventTypes: JobEventType[] = [
+    'hello',
+    'message',
+    'write',
+    'rate_limit',
+    'heartbeat',
+    'done',
+    'failed',
+    'cancelled',
+  ]
+  for (const type of eventTypes) {
+    source.addEventListener(type, dispatch)
+  }
+  source.onerror = (err) => handlers.onError?.(err)
+
+  return () => source.close()
 }
 
 export function playUrlFor(playPath: string): string {

@@ -18,6 +18,9 @@ dependencies = [
     # ships setuptools by default, so we depend on it explicitly.
     "setuptools>=75",
     "claude-agent-sdk>=0.2.82",
+    # Used by cancel_job to walk the child process tree and SIGKILL any
+    # SDK subprocess the asyncio cleanup chain failed to terminate.
+    "psutil>=5.9",
 ]
 
 [dependency-groups]
@@ -27,6 +30,7 @@ dev = [
     "ruff>=0.5",
     "mypy>=1.10",
     "types-requests>=2",
+    "types-psutil>=7.2.2.20260508",
 ]
 
 [build-system]
@@ -44,7 +48,9 @@ line-length = 100
 select = ["E", "W", "F", "I", "N", "UP", "B", "SIM", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["B"]
+# Tests legitimately use class-level mutable attrs (e.g. fixture lists/dicts)
+# and shadowing inner classes for parametrisation.
+"tests/*" = ["B", "RUF012", "F811"]
 
 [tool.mypy]
 strict = true
