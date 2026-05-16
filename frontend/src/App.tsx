@@ -1,14 +1,16 @@
 import { useState } from 'react'
+import ConceptCard from './components/ConceptCard'
 import RecordButton from './components/RecordButton'
 import TokenList from './components/TokenList'
-import { postAnalyze, type AnalyzeResponse } from './lib/api'
+import { postAnalyze, postTranslate, type AnalyzeResponse, type TranslateResponse } from './lib/api'
 
 type Phase =
   | { kind: 'idle' }
   | { kind: 'recording' }
-  | { kind: 'processing' }
-  | { kind: 'success'; result: AnalyzeResponse }
-  | { kind: 'error'; message: string }
+  | { kind: 'analyzing' }
+  | { kind: 'translating'; tokens: AnalyzeResponse }
+  | { kind: 'success'; tokens: AnalyzeResponse; concept: TranslateResponse }
+  | { kind: 'error'; message: string; tokens?: AnalyzeResponse }
 
 function statusLine(phase: Phase): string {
   switch (phase.kind) {
@@ -16,12 +18,14 @@ function statusLine(phase: Phase): string {
       return 'SYS_STATUS · READY'
     case 'recording':
       return 'SYS_STATUS · CAPTURING'
-    case 'processing':
+    case 'analyzing':
       return 'SYS_STATUS · ANALYZING…'
-    case 'success': {
-      const n = phase.result.tokens.length
-      return `SYS_STATUS · ${n} TOKEN${n === 1 ? '' : 'S'} EMITTED`
+    case 'translating': {
+      const n = phase.tokens.tokens.length
+      return `SYS_STATUS · ${n} TOKEN${n === 1 ? '' : 'S'} · TRANSLATING…`
     }
+    case 'success':
+      return 'SYS_STATUS · CONCEPT READY'
     case 'error':
       return 'SYS_STATUS · ERROR'
   }
@@ -30,6 +34,8 @@ function statusLine(phase: Phase): string {
 function statusDotClass(phase: Phase): string {
   switch (phase.kind) {
     case 'recording':
+    case 'analyzing':
+    case 'translating':
       return 'bg-signal motion-safe:animate-pulse'
     case 'error':
       return 'bg-red-500'
@@ -38,18 +44,48 @@ function statusDotClass(phase: Phase): string {
   }
 }
 
+function tokensFromPhase(phase: Phase): AnalyzeResponse | undefined {
+  switch (phase.kind) {
+    case 'translating':
+    case 'success':
+    case 'error':
+      return phase.tokens
+    default:
+      return undefined
+  }
+}
+
 function App() {
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
 
   const handleRecorded = async (blob: Blob) => {
-    setPhase({ kind: 'processing' })
+    setPhase({ kind: 'analyzing' })
+    let tokens: AnalyzeResponse
     try {
-      const result = await postAnalyze(blob)
-      setPhase({ kind: 'success', result })
+      tokens = await postAnalyze(blob)
     } catch (err) {
-      setPhase({ kind: 'error', message: err instanceof Error ? err.message : String(err) })
+      setPhase({
+        kind: 'error',
+        message: `analyze: ${err instanceof Error ? err.message : String(err)}`,
+      })
+      return
+    }
+
+    setPhase({ kind: 'translating', tokens })
+    try {
+      const concept = await postTranslate(tokens)
+      setPhase({ kind: 'success', tokens, concept })
+    } catch (err) {
+      setPhase({
+        kind: 'error',
+        message: `translate: ${err instanceof Error ? err.message : String(err)}`,
+        tokens,
+      })
     }
   }
+
+  const tokens = tokensFromPhase(phase)
+  const recordDisabled = phase.kind === 'analyzing' || phase.kind === 'translating'
 
   return (
     <main className="min-h-dvh bg-black text-amber-crt flex flex-col items-center px-6 py-12 sm:py-16">
@@ -66,22 +102,34 @@ function App() {
             bark<span className="text-signal">_</span>to<span className="text-signal">_</span>game
           </h1>
           <p className="text-sm sm:text-base text-amber-crt/70 max-w-xl">
-            Hold the dial below and mimic a dog. We extract pitch, duration, intensity, and classify
-            each segment via librosa + YAMNet. Phase 2 will translate these tokens into a game
-            concept.
+            Hold the dial below and mimic a dog. Audio is segmented and classified (librosa +
+            YAMNet), then translated into a game concept via Verbalized Sampling across a rotating
+            style-card triplet — diversity guaranteed.
           </p>
         </header>
 
         <div className="flex justify-center py-6">
           <RecordButton
-            disabled={phase.kind === 'processing'}
+            disabled={recordDisabled}
             onRecordingStart={() => setPhase({ kind: 'recording' })}
             onRecorded={handleRecorded}
             onError={(message) => setPhase({ kind: 'error', message })}
           />
         </div>
 
-        {phase.kind === 'success' && <TokenList result={phase.result} />}
+        {tokens && <TokenList result={tokens} />}
+
+        {phase.kind === 'translating' && (
+          <section className="border border-amber-crt/30 p-5 sm:p-6 text-sm text-amber-crt/70">
+            <span className="font-display text-base text-signal motion-safe:animate-pulse">
+              $ translating…
+            </span>{' '}
+            asking Claude for 5 candidate concepts under random style triplet + visual recipe,
+            picking the most diverse vs recent history.
+          </section>
+        )}
+
+        {phase.kind === 'success' && <ConceptCard translation={phase.concept} />}
 
         {phase.kind === 'error' && (
           <section
@@ -94,7 +142,7 @@ function App() {
         )}
 
         <footer className="text-xs text-amber-crt/40 pt-8">
-          bark-to-game · phase 1 · librosa + YAMNet
+          bark-to-game · phase 2 · Verbalized Sampling + MAP-Elites archive
         </footer>
       </div>
     </main>

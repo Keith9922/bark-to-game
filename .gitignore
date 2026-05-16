@@ -35,6 +35,7 @@ pnpm-debug.log*
 
 # Project
 generated-games/
+data/
 backend/.env
 frontend/.env.local
 

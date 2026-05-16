@@ -1,0 +1,52 @@
+[
+  {
+    "name": "catch",
+    "description": "Player catches falling/incoming objects to score; missed objects penalise.",
+    "input": "left/right movement"
+  },
+  {
+    "name": "dodge",
+    "description": "Player avoids incoming threats while moving toward a goal.",
+    "input": "directional movement"
+  },
+  {
+    "name": "rhythm",
+    "description": "Player times button presses to incoming visual or audio beats.",
+    "input": "timed taps"
+  },
+  {
+    "name": "matching",
+    "description": "Player pairs or aligns objects by colour/shape/sound.",
+    "input": "selection and confirm"
+  },
+  {
+    "name": "stacking",
+    "description": "Player drops blocks/objects to build the tallest stable structure.",
+    "input": "placement timing"
+  },
+  {
+    "name": "tracing",
+    "description": "Player follows a path on screen without crossing boundaries.",
+    "input": "continuous pointer movement"
+  },
+  {
+    "name": "memorize",
+    "description": "Player observes a sequence then repeats it from memory.",
+    "input": "ordered selection"
+  },
+  {
+    "name": "herding",
+    "description": "Player guides multiple semi-autonomous entities into a goal zone.",
+    "input": "directional nudging"
+  },
+  {
+    "name": "balancing",
+    "description": "Player keeps a wobbling object/character centred as conditions change.",
+    "input": "fine continuous control"
+  },
+  {
+    "name": "sorting",
+    "description": "Player categorises incoming objects into correct bins before they pile up.",
+    "input": "directional throw"
+  }
+]

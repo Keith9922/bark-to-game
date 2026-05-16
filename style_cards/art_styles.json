@@ -1,0 +1,52 @@
+[
+  {
+    "name": "cubism",
+    "description": "Geometric fragmentation, multiple viewpoints, angular faceted forms.",
+    "palette_hint": "muted earth tones with one saturated accent"
+  },
+  {
+    "name": "vaporwave",
+    "description": "Retro-futuristic neon nostalgia: Greek busts, 80s computing, gradient grids.",
+    "palette_hint": "magenta and cyan on deep purple"
+  },
+  {
+    "name": "ukiyo-e",
+    "description": "Japanese woodblock print: flat color planes, bold linework, asymmetric composition, decorative wave motifs.",
+    "palette_hint": "indigo, vermilion, gold leaf on cream"
+  },
+  {
+    "name": "brutalism",
+    "description": "Raw exposed concrete, monumental and harsh, naked structure, oversized typography.",
+    "palette_hint": "grayscale with one urgent color"
+  },
+  {
+    "name": "claymation",
+    "description": "Hand-sculpted clay aesthetic, soft imperfect edges, tactile and warm.",
+    "palette_hint": "earthy clay tones, soft creams and rust"
+  },
+  {
+    "name": "ascii_terminal",
+    "description": "Pure text rendering: box-drawing characters, ASCII art, CRT phosphor glow.",
+    "palette_hint": "monochrome amber or green on black"
+  },
+  {
+    "name": "stained_glass",
+    "description": "Cathedral window panels: thick black leading, saturated colored shards.",
+    "palette_hint": "jewel tones (ruby, emerald, sapphire) on black grout"
+  },
+  {
+    "name": "blueprint",
+    "description": "Technical drafting on blueprint paper: white linework on blue, dimension lines and measurements visible.",
+    "palette_hint": "white and cyan on cyan-blue"
+  },
+  {
+    "name": "risograph",
+    "description": "Limited-color screen printing: visible registration mismatch, grainy texture, two-color overlay.",
+    "palette_hint": "fluorescent pink and federal blue"
+  },
+  {
+    "name": "bauhaus",
+    "description": "Geometric primitives (circle/triangle/square), primary colors, rigorous grid, sans-serif.",
+    "palette_hint": "red, yellow, blue on white"
+  }
+]
