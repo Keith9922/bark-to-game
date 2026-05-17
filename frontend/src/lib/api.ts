@@ -398,19 +398,29 @@ export function audioPlayUrl(audioPath: string): string {
   return `${BACKEND_URL}${audioPath}`
 }
 
-export interface ShowcaseItem {
+export interface WorkItem {
   game_id: string
-  summary: string
+  title: string
+  tagline: string
+  art: string
+  mechanic: string
+  mood: string
+  visual_recipe: string
+  /** Relative URL to the original recording's wav, or null if not preserved. */
+  audio_url: string | null
   play_url: string
   created_at: number
-  size_bytes: number
+  /** False when the entry was synthesised from a filesystem orphan rather
+   *  than read out of the history index — the card hides the meta tags
+   *  + audio in that case. */
+  has_history: boolean
 }
 
-export async function fetchShowcase(): Promise<ShowcaseItem[]> {
+export async function fetchWorks(): Promise<WorkItem[]> {
   const response = await fetch(`${BACKEND_URL}/api/game/showcase/all`)
   if (!response.ok) {
-    throw new Error(`showcase ${response.status}`)
+    throw new Error(`works ${response.status}`)
   }
-  const data = (await response.json()) as { items: ShowcaseItem[] }
+  const data = (await response.json()) as { items: WorkItem[] }
   return data.items
 }

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from typing import Any
 
@@ -186,3 +187,158 @@ def test_cancel_already_done_job_is_idempotent(monkeypatch: pytest.MonkeyPatch) 
 def test_cancel_unknown_job_404() -> None:
     response = client.delete("/api/game/job/nope")
     assert response.status_code == 404
+
+
+def _wire_showcase_dirs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> tuple[Path, Path, Path]:
+    """Point HISTORY_DIR / AUDIO_DIR / GENERATED_GAMES_DIR at tmp_path subdirs."""
+    history_dir = tmp_path / "history"
+    audio_dir = tmp_path / "audio"
+    games_dir = tmp_path / "generated-games"
+    history_dir.mkdir()
+    audio_dir.mkdir()
+    games_dir.mkdir()
+
+    from bark_to_game import paths
+    from bark_to_game.routes import game as game_route
+
+    monkeypatch.setattr(paths, "HISTORY_DIR", history_dir)
+    monkeypatch.setattr(paths, "AUDIO_DIR", audio_dir)
+    monkeypatch.setattr(game_route, "GENERATED_GAMES_DIR", games_dir)
+    return history_dir, audio_dir, games_dir
+
+
+def _write_game(games_dir: Path, game_id: str, summary: str | None = None) -> None:
+    game_dir = games_dir / game_id
+    game_dir.mkdir(parents=True)
+    (game_dir / "game.html").write_text(f"<!-- {game_id} -->")
+    if summary is not None:
+        (game_dir / "SUMMARY.md").write_text(summary)
+
+
+def test_showcase_merges_history_and_orphan_games(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    history_dir, audio_dir, games_dir = _wire_showcase_dirs(monkeypatch, tmp_path)
+
+    # History entry with everything wired up (audio file exists)
+    audio_hash = "feedbeef" * 8
+    (audio_dir / f"{audio_hash}.wav").write_bytes(b"RIFF...")
+    _write_game(games_dir, "game-with-history")
+    (history_dir / "session-a.json").write_text(
+        json.dumps(
+            [
+                {
+                    "game_id": "game-with-history",
+                    "title": "Bark Quest",
+                    "tagline": "a barky journey",
+                    "art": "cubism",
+                    "mechanic": "catch",
+                    "mood": "serene",
+                    "visual_recipe": "pixel_crt",
+                    "audio_hash": audio_hash,
+                    "created_at": 1000.0,
+                }
+            ]
+        )
+    )
+
+    # Filesystem-only orphan with a parsable SUMMARY.md
+    _write_game(games_dir, "orphan-game", summary="**ORPHAN** — no history index entry")
+
+    response = client.get("/api/game/showcase/all")
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert len(items) == 2
+
+    by_id = {it["game_id"]: it for it in items}
+
+    history_item = by_id["game-with-history"]
+    assert history_item["has_history"] is True
+    assert history_item["title"] == "Bark Quest"
+    assert history_item["tagline"] == "a barky journey"
+    assert history_item["audio_url"] == f"/api/audio/{audio_hash}/play"
+    assert history_item["play_url"] == "/api/game/game-with-history/play"
+
+    orphan_item = by_id["orphan-game"]
+    assert orphan_item["has_history"] is False
+    assert orphan_item["title"] == "ORPHAN"
+    assert orphan_item["tagline"] == "no history index entry"
+    assert orphan_item["audio_url"] is None
+
+
+def test_showcase_omits_history_rows_when_game_html_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    history_dir, _audio_dir, games_dir = _wire_showcase_dirs(monkeypatch, tmp_path)
+
+    # Game on disk → kept
+    _write_game(games_dir, "kept")
+    # History row for a vanished game (e.g. cancelled job) → hidden
+    (history_dir / "s.json").write_text(
+        json.dumps(
+            [
+                {"game_id": "kept", "title": "Kept", "created_at": 2.0},
+                {"game_id": "vanished", "title": "Vanished", "created_at": 1.0},
+            ]
+        )
+    )
+
+    response = client.get("/api/game/showcase/all")
+    assert response.status_code == 200
+    ids = [it["game_id"] for it in response.json()["items"]]
+    assert ids == ["kept"]
+
+
+def test_showcase_omits_audio_url_when_wav_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    history_dir, _audio_dir, games_dir = _wire_showcase_dirs(monkeypatch, tmp_path)
+    _write_game(games_dir, "no-audio")
+    (history_dir / "s.json").write_text(
+        json.dumps(
+            [
+                {
+                    "game_id": "no-audio",
+                    "title": "Silent",
+                    "audio_hash": "missingaudio" * 4,
+                    "created_at": 1.0,
+                }
+            ]
+        )
+    )
+
+    response = client.get("/api/game/showcase/all")
+    assert response.status_code == 200
+    [item] = response.json()["items"]
+    assert item["audio_url"] is None
+
+
+def test_showcase_sorts_newest_first(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    history_dir, _audio_dir, games_dir = _wire_showcase_dirs(monkeypatch, tmp_path)
+    for game_id, ts in (("old", 100.0), ("new", 200.0), ("mid", 150.0)):
+        _write_game(games_dir, game_id)
+    (history_dir / "s.json").write_text(
+        json.dumps(
+            [
+                {"game_id": "old", "title": "Old", "created_at": 100.0},
+                {"game_id": "new", "title": "New", "created_at": 200.0},
+                {"game_id": "mid", "title": "Mid", "created_at": 150.0},
+            ]
+        )
+    )
+
+    response = client.get("/api/game/showcase/all")
+    assert [it["game_id"] for it in response.json()["items"]] == ["new", "mid", "old"]
+
+
+def test_showcase_empty_when_no_data(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _wire_showcase_dirs(monkeypatch, tmp_path)
+    response = client.get("/api/game/showcase/all")
+    assert response.status_code == 200
+    assert response.json() == {"items": []}
