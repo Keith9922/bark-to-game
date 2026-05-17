@@ -55,7 +55,7 @@ addEventListener('pointermove', e => { ptr.x=e.clientX; ptr.y=e.clientY; });
 addEventListener('pointerdown', e => {
   ptr.x=e.clientX; ptr.y=e.clientY; ptr.down=true; ptr.pressedThisFrame=true;
   ensureAudio();
-  if(state==='title'){ startGame(); }
+  if(state==='title'){ startRound(); }
   else if(state==='win'||state==='lose'){ state='title'; }
 });
 addEventListener('pointerup', () => { ptr.down=false; });
@@ -66,7 +66,7 @@ addEventListener('keydown', e=>{
   keys[e.key]=true;
   if(e.key==='Enter'){
     ensureAudio();
-    if(state==='title') startGame();
+    if(state==='title') startRound();
     else if(state==='win'||state==='lose') state='title';
   }
 });
@@ -143,8 +143,8 @@ function metro(dt){
   }
 }
 
-// Game start
-function startGame(){
+// Round start
+function startRound(){
   state='play';
   timeLeft=35;
   saved=0; lost=0;

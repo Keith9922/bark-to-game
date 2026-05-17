@@ -77,7 +77,7 @@ const sfx = {
   wrong:   () => sine(108, 0.24, 0.22),
 };
 
-// ── Game constants ──────────────────────────────────────────────────────────
+// ── Constants ──────────────────────────────────────────────────────────
 const WIN_NEEDED   = 12;   // correct sorts to win
 const MAX_CRACKS   = 3;    // wrong sorts before lose
 const ITEM_TIMEOUT = 2.8;  // seconds before auto-miss
@@ -86,7 +86,7 @@ const SPAWN_PAUSE  = 0.8;  // silence gap after each item resolves
 // Two categories; left bin = BARK, right bin = QUIET
 const CATS = ['BARK', 'QUIET'];
 
-// ── Game state ──────────────────────────────────────────────────────────────
+// ── Round state ──────────────────────────────────────────────────────────────
 let phase = 'title'; // 'title' | 'play' | 'win' | 'lose'
 let score = 0, cracks = 0;
 let spawnClock = SPAWN_PAUSE;
@@ -316,7 +316,7 @@ function renderTitle() {
   ctx.fillText('PRESS ENTER OR CLICK TO BEGIN', W * 0.5, ty + tsz * 4.40);
 }
 
-// ── Render: gameplay ─────────────────────────────────────────────────────────
+// ── Render: round ─────────────────────────────────────────────────────────
 function renderPlay() {
   drawBins();
 
