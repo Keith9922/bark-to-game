@@ -25,7 +25,6 @@ export default function HistoryPanel({ sessionId, refreshKey = 0 }: Props) {
   const [entries, setEntries] = useState<HistoryEntry[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [expanded, setExpanded] = useState(true)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -44,98 +43,90 @@ export default function HistoryPanel({ sessionId, refreshKey = 0 }: Props) {
     void load()
   }, [load, refreshKey])
 
-  if (entries.length === 0 && !loading && !error) return null
+  if (loading) {
+    return <p className="text-xs text-amber-crt/40 font-mono">加载历史中…</p>
+  }
+  if (error) {
+    return <p className="text-xs text-red-400 font-mono">载入历史失败：{error}</p>
+  }
+  if (entries.length === 0) {
+    return (
+      <p className="text-xs text-amber-crt/40 font-mono">
+        这个话题还没有生成过作品 — 录一声狗叫开始第一个。
+      </p>
+    )
+  }
 
   return (
-    <section
-      aria-labelledby="history-section-heading"
-      className="border border-amber-crt/30 p-5 sm:p-6 w-full"
-    >
-      <header className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
-        <h2 id="history-section-heading" className="font-display text-2xl sm:text-3xl text-signal">
-          📜 历史记录
-        </h2>
-        <div className="flex items-center gap-3 text-xs text-amber-crt/50">
-          <span>{entries.length} 个游戏 · 当前话题</span>
-          <button
-            type="button"
-            onClick={() => setExpanded((v) => !v)}
-            className="border border-amber-crt/30 px-2 py-0.5 hover:bg-amber-crt/10"
-            aria-expanded={expanded}
-          >
-            {expanded ? '收起 ▴' : '展开 ▾'}
-          </button>
-        </div>
-      </header>
-      <p className="text-xs sm:text-sm text-amber-crt/60 mb-4">
-        这个话题下生成过的游戏。点击链接打开新标签页玩；保留原始录音的可以直接回放。
+    <div className="space-y-3">
+      <p className="text-xs text-amber-crt/60">
+        当前话题下生成过的作品，共
+        <span className="text-signal mx-1">{entries.length}</span>
+        个。保留原始录音的可以直接回放。
       </p>
 
-      {error && <p className="text-xs text-red-400 mb-3">载入历史失败：{error}</p>}
+      <ol className="space-y-3">
+        {entries.map((entry) => (
+          <li key={entry.game_id} className="border border-amber-crt/15 p-3 sm:p-4 space-y-2">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h3 className="font-display text-base sm:text-lg text-amber-crt leading-tight">
+                {entry.title}
+              </h3>
+              <span className="text-[11px] text-amber-crt/50">
+                {formatRelative(entry.created_at)}
+              </span>
+            </div>
 
-      {expanded && (
-        <ol className="space-y-4">
-          {entries.map((entry) => (
-            <li key={entry.game_id} className="border border-amber-crt/15 p-4 space-y-3">
-              <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <h3 className="font-display text-lg sm:text-xl text-amber-crt leading-tight">
-                  {entry.title}
-                </h3>
-                <span className="text-xs text-amber-crt/50">
-                  {formatRelative(entry.created_at)}
-                </span>
-              </div>
+            <p className="text-xs text-amber-crt/80 italic">{entry.tagline}</p>
 
-              <p className="text-xs sm:text-sm text-amber-crt/80 italic">{entry.tagline}</p>
+            <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-amber-crt/60">
+              <span>
+                美术 <span className="text-signal">{entry.art}</span>
+              </span>
+              <span>
+                机制 <span className="text-signal">{entry.mechanic}</span>
+              </span>
+              <span>
+                氛围 <span className="text-signal">{entry.mood}</span>
+              </span>
+              <span>
+                配方 <span className="text-signal">{entry.visual_recipe}</span>
+              </span>
+            </div>
 
-              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-amber-crt/60">
-                <span>
-                  美术 <span className="text-signal">{entry.art}</span>
-                </span>
-                <span>
-                  机制 <span className="text-signal">{entry.mechanic}</span>
-                </span>
-                <span>
-                  氛围 <span className="text-signal">{entry.mood}</span>
-                </span>
-                <span>
-                  配方 <span className="text-signal">{entry.visual_recipe}</span>
-                </span>
-              </div>
-
-              {entry.has_audio && entry.audio_url && (
-                <div className="space-y-1">
-                  <div className="text-xs text-amber-crt/50">🎙️ 原始录音</div>
-                  <audio
-                    controls
-                    src={audioPlayUrl(entry.audio_url)}
-                    className="w-full"
-                    preload="none"
-                  >
-                    您的浏览器不支持 audio 元素。
-                  </audio>
-                </div>
-              )}
-
-              <div className="flex flex-wrap items-center gap-3 pt-1">
-                <a
-                  href={playUrlFor(entry.play_url)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1 px-4 py-2 border-2 border-signal text-signal hover:bg-signal/10 font-display text-sm"
+            {entry.has_audio && entry.audio_url && (
+              <div className="space-y-1">
+                <div className="text-[11px] text-amber-crt/50">🎙️ 原始录音</div>
+                <audio
+                  controls
+                  src={audioPlayUrl(entry.audio_url)}
+                  className="w-full"
+                  preload="none"
                 >
-                  ↗ 玩这个游戏
-                </a>
-                {!entry.has_audio && (
-                  <span className="text-xs text-amber-crt/40">
-                    （此版本之前生成的游戏没有保留录音）
-                  </span>
-                )}
+                  您的浏览器不支持 audio 元素。
+                </audio>
               </div>
-            </li>
-          ))}
-        </ol>
-      )}
-    </section>
+            )}
+
+            <div className="flex flex-wrap items-center gap-3 pt-1">
+              <a
+                href={playUrlFor(entry.play_url)}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 px-3 py-1.5 border-2 border-signal text-signal hover:bg-signal/10 font-display text-xs sm:text-sm"
+                style={{ WebkitTapHighlightColor: 'transparent' }}
+              >
+                ↗ 玩这个作品
+              </a>
+              {!entry.has_audio && (
+                <span className="text-[10px] text-amber-crt/40">
+                  （早期版本未保留录音）
+                </span>
+              )}
+            </div>
+          </li>
+        ))}
+      </ol>
+    </div>
   )
 }
