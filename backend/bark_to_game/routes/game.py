@@ -27,6 +27,7 @@ from bark_to_game.schemas.game import (
     JobEvent,
     JobView,
 )
+from bark_to_game.sessions import manager as sessions
 
 router = APIRouter(prefix="/api/game", tags=["game"])
 
@@ -79,6 +80,10 @@ def _terminal_event(job: JobState) -> JobEvent:
 
 def _record_history(job: JobState, req: GenerateRequest, game_id: str) -> None:
     try:
+        # Make sure the session the frontend submitted is registered. If the
+        # user's localStorage carries an id from a backend instance that no
+        # longer exists, an unregistered id would silently orphan the game.
+        sessions.ensure_registered(req.session_id)
         history.record(
             history.HistoryEntry(
                 game_id=game_id,
