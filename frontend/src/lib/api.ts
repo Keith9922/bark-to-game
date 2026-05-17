@@ -397,3 +397,20 @@ export async function fetchHistory(sessionId: string): Promise<HistoryEntry[]> {
 export function audioPlayUrl(audioPath: string): string {
   return `${BACKEND_URL}${audioPath}`
 }
+
+export interface ShowcaseItem {
+  game_id: string
+  summary: string
+  play_url: string
+  created_at: number
+  size_bytes: number
+}
+
+export async function fetchShowcase(): Promise<ShowcaseItem[]> {
+  const response = await fetch(`${BACKEND_URL}/api/game/showcase/all`)
+  if (!response.ok) {
+    throw new Error(`showcase ${response.status}`)
+  }
+  const data = (await response.json()) as { items: ShowcaseItem[] }
+  return data.items
+}
