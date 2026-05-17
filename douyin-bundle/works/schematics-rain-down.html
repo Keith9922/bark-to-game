@@ -116,7 +116,7 @@ function bgTick() {
   setTimeout(bgTick, bgTempo);
 }
 
-// ── Game State ────────────────────────────────────────────
+// ── Round State ────────────────────────────────────────────
 let state='title';
 let score=0, consecutiveMisses=0, litSections=0;
 const MAX_MISSES=3, TOTAL_SECTIONS=6;
@@ -142,11 +142,11 @@ addEventListener('touchend',   ()=>{ touchX=null; keys.left=keys.right=0; },{pas
 addEventListener('pointerdown', ()=>{ ga(); activate(); });
 
 function activate() {
-  if(state==='title') startGame();
-  else if(state==='win'||state==='lose') resetGame();
+  if(state==='title') startRound();
+  else if(state==='win'||state==='lose') resetRound();
 }
 
-function startGame() {
+function startRound() {
   state='play'; score=0; consecutiveMisses=0; litSections=0;
   scrolls=[]; particles=[]; shockwaves=[];
   voidT=0; winT=0; totalBursts=0; bgTempo=600;
@@ -159,7 +159,7 @@ function startGame() {
   if(!bgScheduled){ bgScheduled=true; bgTick(); }
 }
 
-function resetGame(){ state='title'; }
+function resetRound(){ state='title'; }
 
 // ── Spawn ─────────────────────────────────────────────────
 function spawnBurst() {
@@ -423,7 +423,7 @@ function renderTitle(){
   ctx.fillText('arrow keys / A D  |  touch left or right half', 0, 0);
   ctx.fillText('3 consecutive misses = VOID stamp', 0, Math.round(W*0.038));
   ctx.restore();
-  // Demo scrolls
+  // scrolls
   const ty=(Date.now()/1000*75)%(H+70)-35;
   drawScroll(W*0.22, ty, Date.now()/400);
   drawScroll(W*0.78, (ty+H*0.45)%(H+70)-35, Date.now()/500);

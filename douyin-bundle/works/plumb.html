@@ -54,7 +54,7 @@ addEventListener('touchmove',e=>{onPointer(e);e.preventDefault();},{passive:fals
 addEventListener('touchend',()=>{input.pointerX=null;});
 addEventListener('mousemove',e=>{if(e.buttons)onPointer(e);});
 
-// ---------- game state ----------
+// ---------- round state ----------
 let state='title'; // title | play | win | lose
 let last=performance.now();
 let t=0; // play time

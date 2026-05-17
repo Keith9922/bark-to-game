@@ -49,7 +49,7 @@ function bark(pitch=1, dur=0.22){
   o.stop(now+dur+0.02); o2.stop(now+dur+0.02); lfo.stop(now+dur+0.02);
 }
 
-function gameshowSting(){
+function triumphSting(){
   const a=audio(), now=a.currentTime;
   const notes=[392, 523, 659, 784];
   notes.forEach((f,i)=>{
@@ -109,7 +109,7 @@ function clickTone(p){
   o.start(); o.stop(now+0.14);
 }
 
-// ---------- GAME STATE ----------
+// ---------- ROUND STATE ----------
 let state='title'; // title, show, input, between, win, lose
 let round=1;
 const maxRound=5;
@@ -177,7 +177,7 @@ function startRound(r){
   showTimer=0;
   flashId=-1;
   state='show';
-  gameshowSting();
+  triumphSting();
 }
 
 function reset(){
