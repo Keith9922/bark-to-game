@@ -1,0 +1,751 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Falling Frequency</title>
+<style>
+  html,body{margin:0;background:#f3ead4;overflow:hidden;font-family:"Kalam","Patrick Hand",cursive;color:#2a2520;-webkit-tap-highlight-color:transparent}
+  canvas{display:block;touch-action:none;cursor:crosshair}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c')
+const ctx = cv.getContext('2d')
+let W=0, H=0
+function fitCanvas() {
+  const dpr = Math.min(2, devicePixelRatio || 1)
+  W = innerWidth; H = innerHeight
+  cv.style.width = W + 'px'
+  cv.style.height = H + 'px'
+  cv.width  = Math.floor(W * dpr)
+  cv.height = Math.floor(H * dpr)
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+}
+addEventListener('resize', fitCanvas); fitCanvas()
+
+// ===== AUDIO =====
+let actx
+function audio() { if (!actx) actx = new (window.AudioContext||window.webkitAudioContext)(); return actx }
+
+// Pencil scratch: short filtered noise burst
+function scratch() {
+  const a = audio(), now = a.currentTime
+  const dur = 0.05 + Math.random()*0.04
+  const buf = a.createBuffer(1, Math.floor(a.sampleRate*dur), a.sampleRate)
+  const d = buf.getChannelData(0)
+  for (let i=0;i<d.length;i++) {
+    const env = Math.sin(Math.PI * i/d.length)
+    d[i] = (Math.random()*2 - 1) * env * 0.7
+  }
+  const src = a.createBufferSource(); src.buffer = buf
+  const hp = a.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=1800
+  const bp = a.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=3200; bp.Q.value=2
+  const g = a.createGain(); g.gain.value = 0.05
+  src.connect(hp).connect(bp).connect(g).connect(a.destination); src.start()
+}
+
+// Paper crumple: longer broadband noise with low rumble
+function crumple() {
+  const a = audio(), now = a.currentTime
+  const dur = 0.6
+  const buf = a.createBuffer(1, Math.floor(a.sampleRate*dur), a.sampleRate)
+  const d = buf.getChannelData(0)
+  for (let i=0;i<d.length;i++) {
+    const env = Math.pow(1 - i/d.length, 1.5)
+    const crackle = Math.random() < 0.02 ? (Math.random()*2-1)*2 : 0
+    d[i] = ((Math.random()*2 - 1) * 0.6 + crackle) * env
+  }
+  const src = a.createBufferSource(); src.buffer = buf
+  const bp = a.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=1400; bp.Q.value=0.7
+  const g = a.createGain(); g.gain.value = 0.18
+  src.connect(bp).connect(g).connect(a.destination); src.start()
+}
+
+// Cello drone via filtered sawtooth pretending to be acoustic (best we can do)
+let drone = null
+function startDrone() {
+  if (drone) return
+  const a = audio()
+  const o1 = a.createOscillator(); o1.type='sawtooth'; o1.frequency.value=110 // A2
+  const o2 = a.createOscillator(); o2.type='sawtooth'; o2.frequency.value=146.83 // D3
+  const o3 = a.createOscillator(); o3.type='sine'; o3.frequency.value=55
+  const lp = a.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=600; lp.Q.value=2
+  const lfo = a.createOscillator(); lfo.type='sine'; lfo.frequency.value=0.15
+  const lfog = a.createGain(); lfog.gain.value=80
+  lfo.connect(lfog).connect(lp.frequency)
+  // tape hiss
+  const hissBuf = a.createBuffer(1, a.sampleRate*2, a.sampleRate)
+  const hd = hissBuf.getChannelData(0)
+  for (let i=0;i<hd.length;i++) hd[i]=(Math.random()*2-1)*0.4
+  const hiss = a.createBufferSource(); hiss.buffer=hissBuf; hiss.loop=true
+  const hissg = a.createGain(); hissg.gain.value=0.02
+  const hisshp = a.createBiquadFilter(); hisshp.type='highpass'; hisshp.frequency.value=2000
+  hiss.connect(hisshp).connect(hissg).connect(a.destination)
+  const g = a.createGain(); g.gain.value=0
+  o1.connect(lp); o2.connect(lp); o3.connect(g); lp.connect(g); g.connect(a.destination)
+  g.gain.linearRampToValueAtTime(0.08, a.currentTime+2)
+  o1.start(); o2.start(); o3.start(); lfo.start(); hiss.start()
+  drone = {g, o1, o2, o3, hissg}
+}
+function fadeDrone() {
+  if (!drone) return
+  const a = audio()
+  drone.g.gain.cancelScheduledValues(a.currentTime)
+  drone.g.gain.setValueAtTime(drone.g.gain.value, a.currentTime)
+  drone.g.gain.linearRampToValueAtTime(0.0, a.currentTime+1.5)
+  drone.hissg.gain.linearRampToValueAtTime(0.0, a.currentTime+1.5)
+}
+
+// ===== STATE =====
+let state = 'title'  // title | play | win | lose
+let last = performance.now()
+let boilTimer = 0, boilFrame = 0
+let wobbleTimer = 0, wobbleOffset = {x:0, y:0}
+let pathProgress = 0 // 0..1 along the wave
+let furthestProgress = 0
+let pointer = {x:0, y:0, active:false, hasMoved:false}
+let lastPointerMoveTime = 0
+let staticLevel = 0 // 0..1
+let staticChars = []
+let failReason = ''
+let winFadeIn = 0
+let breakFlashTime = 0
+let scratchCooldown = 0
+let traceChars = [] // chars rendered along path as player advances
+let lastTraceIndex = -1
+
+const WAVE_CHARS = ['~','-','^','=','~','-']
+const SHADOW_CHARS = [';','\\',':','.',',']
+
+// Wave path generator - returns {x, y} for t in [0,1]
+function wavePoint(t) {
+  // bounding box for the wave region (inside borders)
+  const padX = 60
+  const padTop = 110
+  const padBot = 90
+  const x0 = padX, x1 = W - padX
+  const y0 = padTop, y1 = H - padBot
+  const x = x0 + (x1-x0) * t
+  // descending arc with oscillation
+  const baseY = y0 + (y1-y0) * (t*t*0.7 + t*0.3) // ease-in descent
+  const wob = Math.sin(t*Math.PI*6) * 28 + Math.sin(t*Math.PI*13 + 1) * 12
+  return {x, y: baseY + wob}
+}
+
+const TOLERANCE = 38 // pixels
+
+function reset() {
+  pathProgress = 0
+  furthestProgress = 0
+  pointer.active = false
+  pointer.hasMoved = false
+  lastPointerMoveTime = performance.now()
+  staticLevel = 0
+  staticChars = []
+  failReason = ''
+  winFadeIn = 0
+  breakFlashTime = 0
+  traceChars = []
+  lastTraceIndex = -1
+}
+
+// ===== INPUT =====
+function pointerEventPos(e) {
+  const r = cv.getBoundingClientRect()
+  if (e.touches && e.touches[0]) return {x: e.touches[0].clientX - r.left, y: e.touches[0].clientY - r.top}
+  return {x: e.clientX - r.left, y: e.clientY - r.top}
+}
+
+function startPointer(e) {
+  e.preventDefault()
+  audio() // boot
+  const p = pointerEventPos(e)
+  pointer.x = p.x; pointer.y = p.y
+  
+  if (state === 'title') {
+    state = 'play'
+    reset()
+    startDrone()
+    return
+  }
+  if (state === 'win' || state === 'lose') {
+    state = 'title'
+    fadeDrone()
+    drone = null
+    return
+  }
+  // play state - check if near start of wave
+  if (state === 'play') {
+    const start = wavePoint(0)
+    const d = Math.hypot(p.x - start.x, p.y - start.y)
+    // Allow starting anywhere near current progress point
+    const cur = wavePoint(pathProgress)
+    const d2 = Math.hypot(p.x - cur.x, p.y - cur.y)
+    if (pathProgress === 0 && d < TOLERANCE*1.5) {
+      pointer.active = true
+      pointer.hasMoved = true
+      lastPointerMoveTime = performance.now()
+    } else if (d2 < TOLERANCE) {
+      pointer.active = true
+      pointer.hasMoved = true
+      lastPointerMoveTime = performance.now()
+    }
+  }
+}
+
+function movePointer(e) {
+  e.preventDefault()
+  if (state !== 'play') return
+  const p = pointerEventPos(e)
+  pointer.x = p.x; pointer.y = p.y
+  pointer.hasMoved = true
+  lastPointerMoveTime = performance.now()
+}
+
+function endPointer(e) {
+  if (state === 'play' && pointer.active) {
+    // lifting pointer breaks the signal
+    failSignal('— pointer lifted —')
+  }
+  pointer.active = false
+}
+
+cv.addEventListener('mousedown', startPointer)
+cv.addEventListener('mousemove', e => { if (pointer.active || state !== 'play') movePointer(e); else { const p=pointerEventPos(e); pointer.x=p.x; pointer.y=p.y } })
+cv.addEventListener('mouseup', endPointer)
+cv.addEventListener('mouseleave', endPointer)
+cv.addEventListener('touchstart', startPointer, {passive:false})
+cv.addEventListener('touchmove', movePointer, {passive:false})
+cv.addEventListener('touchend', endPointer)
+cv.addEventListener('touchcancel', endPointer)
+
+addEventListener('keydown', e => {
+  if (e.key === 'Enter' || e.key === ' ') {
+    if (state === 'title') { audio(); state='play'; reset(); startDrone() }
+    else if (state === 'win' || state === 'lose') { state='title'; fadeDrone(); drone=null }
+  }
+})
+
+function failSignal(reason) {
+  if (state !== 'play') return
+  state = 'lose'
+  failReason = reason
+  pointer.active = false
+  crumple()
+  fadeDrone()
+  // start filling static
+  staticChars = []
+}
+
+// ===== UPDATE =====
+function update(dt, now) {
+  boilTimer += dt
+  if (boilTimer > 0.35) { boilTimer = 0; boilFrame++ }
+  wobbleTimer += dt
+  if (wobbleTimer > 0.1) {
+    wobbleTimer = 0
+    wobbleOffset.x = (Math.random()-0.5)*2
+    wobbleOffset.y = (Math.random()-0.5)*2
+  }
+  scratchCooldown -= dt
+  if (breakFlashTime > 0) breakFlashTime -= dt
+
+  if (state === 'play' && pointer.active) {
+    // pointer must be near current+near future on path
+    // Find nearest progress t to pointer
+    let bestT = pathProgress, bestD = Infinity
+    const search = 80
+    for (let i = 0; i <= search; i++) {
+      const t = Math.min(1, pathProgress + (i/search) * 0.12)
+      const p = wavePoint(t)
+      const d = Math.hypot(pointer.x - p.x, pointer.y - p.y)
+      if (d < bestD) { bestD = d; bestT = t }
+    }
+    
+    if (bestD > TOLERANCE) {
+      failSignal('— off the corridor —')
+      return
+    }
+    
+    // Advance progress (only forward)
+    if (bestT > pathProgress) {
+      pathProgress = bestT
+      furthestProgress = Math.max(furthestProgress, pathProgress)
+      // emit scratch sound periodically based on distance
+      if (scratchCooldown <= 0) {
+        scratch()
+        scratchCooldown = 0.05 + Math.random()*0.04
+      }
+      // add traced char
+      const idx = Math.floor(pathProgress * 200)
+      if (idx > lastTraceIndex) {
+        for (let k = lastTraceIndex+1; k <= idx; k++) {
+          const t = k/200
+          if (t > 1) break
+          const p = wavePoint(t)
+          traceChars.push({x:p.x, y:p.y, ch: WAVE_CHARS[k % WAVE_CHARS.length], age:0, jx:(Math.random()-0.5)*1.2, jy:(Math.random()-0.5)*1.2})
+        }
+        lastTraceIndex = idx
+      }
+    }
+    
+    // pause too long
+    if (now - lastPointerMoveTime > 1200) {
+      failSignal('— signal stalled —')
+      return
+    }
+    
+    if (pathProgress >= 0.995) {
+      state = 'win'
+      pointer.active = false
+      fadeDrone()
+    }
+  }
+  
+  // animate traced chars
+  traceChars.forEach(t => t.age += dt)
+  
+  if (state === 'lose') {
+    staticLevel = Math.min(1, staticLevel + dt * 0.35)
+    // add static chars
+    if (staticChars.length < 1500 * staticLevel) {
+      for (let i=0; i<8; i++) {
+        staticChars.push({
+          x: Math.random() * W,
+          y: Math.random() * H,
+          ch: '#',
+          a: 0.3 + Math.random()*0.7
+        })
+      }
+    }
+  }
+  
+  if (state === 'win') {
+    winFadeIn = Math.min(1, winFadeIn + dt * 0.5)
+  }
+}
+
+// ===== RENDER =====
+const C_BG = '#f3ead4'
+const C_INK = '#2a2520'
+const C_RUST = '#a8412c'
+const C_BLUE = '#5a7a92'
+const C_WASH = '#c8b88a'
+
+function setFont(size, family='Kalam') {
+  ctx.font = `${size}px "${family}", "Patrick Hand", cursive`
+}
+function setMono(size) {
+  ctx.font = `${size}px "Courier New", monospace`
+}
+
+function drawText(str, x, y, size, color, align='left', family='Kalam') {
+  ctx.fillStyle = color
+  ctx.textAlign = align
+  ctx.textBaseline = 'top'
+  setFont(size, family)
+  ctx.fillText(str, Math.round(x), Math.round(y))
+}
+
+function drawMono(str, x, y, size, color, align='left', alpha=1) {
+  ctx.globalAlpha = alpha
+  ctx.fillStyle = color
+  ctx.textAlign = align
+  ctx.textBaseline = 'middle'
+  setMono(size)
+  ctx.fillText(str, x, y)
+  ctx.globalAlpha = 1
+}
+
+// Tear-edge border: jagged line
+function drawTearBorder() {
+  ctx.save()
+  ctx.strokeStyle = C_INK
+  ctx.lineWidth = 1.6
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  
+  const m = 24 + wobbleOffset.x*0.3
+  const seed = boilFrame * 17
+  function rand(i) { const x = Math.sin(i*12.9898 + seed)*43758.5453; return x - Math.floor(x) }
+  
+  ctx.beginPath()
+  // top
+  let x = m
+  ctx.moveTo(x, m + rand(0)*3)
+  for (let i = 1; x < W - m; i++) {
+    x += 8 + rand(i)*6
+    if (x > W - m) x = W - m
+    ctx.lineTo(x, m + (rand(i+100)-0.5)*4)
+  }
+  // right
+  let y = m
+  for (let i = 1; y < H - m; i++) {
+    y += 8 + rand(i+200)*6
+    if (y > H - m) y = H - m
+    ctx.lineTo(W - m + (rand(i+300)-0.5)*4, y)
+  }
+  // bottom
+  x = W - m
+  for (let i = 1; x > m; i++) {
+    x -= 8 + rand(i+400)*6
+    if (x < m) x = m
+    ctx.lineTo(x, H - m + (rand(i+500)-0.5)*4)
+  }
+  // left
+  y = H - m
+  for (let i = 1; y > m; i++) {
+    y -= 8 + rand(i+600)*6
+    if (y < m) y = m
+    ctx.lineTo(m + (rand(i+700)-0.5)*4, y)
+  }
+  ctx.closePath()
+  ctx.stroke()
+  
+  // double inner stroke (sketchy)
+  ctx.globalAlpha = 0.35
+  ctx.beginPath()
+  ctx.moveTo(m+3, m+3); ctx.lineTo(W-m-3, m+2)
+  ctx.moveTo(W-m-3, m+3); ctx.lineTo(W-m-2, H-m-3)
+  ctx.moveTo(W-m-3, H-m-3); ctx.lineTo(m+3, H-m-2)
+  ctx.moveTo(m+3, H-m-3); ctx.lineTo(m+2, m+3)
+  ctx.stroke()
+  ctx.globalAlpha = 1
+  
+  ctx.restore()
+}
+
+// Cross-hatch shadow zone (semicolons and backslashes)
+function drawShadowZone(x, y, w, h, density=0.04) {
+  ctx.save()
+  setMono(11)
+  ctx.fillStyle = C_INK
+  ctx.textBaseline = 'middle'
+  ctx.textAlign = 'center'
+  const seed = boilFrame * 7
+  function rand(i) { const v = Math.sin(i*43.21 + seed)*12345.67; return v - Math.floor(v) }
+  let i = 0
+  for (let yy = y; yy < y+h; yy += 9) {
+    for (let xx = x; xx < x+w; xx += 7) {
+      i++
+      if (rand(i) < density) continue
+      ctx.globalAlpha = 0.18 + rand(i+1)*0.18
+      const ch = SHADOW_CHARS[Math.floor(rand(i+2)*SHADOW_CHARS.length)]
+      ctx.fillText(ch, xx + (rand(i+3)-0.5)*2, yy + (rand(i+4)-0.5)*2)
+    }
+  }
+  ctx.restore()
+}
+
+// Dot-matrix stipple wash
+function drawStipple(x, y, w, h, density=0.02, color=C_WASH) {
+  ctx.save()
+  ctx.fillStyle = color
+  const seed = boilFrame * 3
+  function rand(i) { const v = Math.sin(i*91.7 + seed)*8675.309; return v - Math.floor(v) }
+  const count = Math.floor(w*h*density*0.01)
+  for (let i = 0; i < count; i++) {
+    const px = x + rand(i)*w
+    const py = y + rand(i+1000)*h
+    ctx.globalAlpha = 0.3 + rand(i+2000)*0.4
+    ctx.fillRect(px, py, 1.2, 1.2)
+  }
+  ctx.restore()
+}
+
+// Draw the wave corridor (tolerance band as light stipple)
+function drawCorridor() {
+  ctx.save()
+  // dotted boundary lines above and below path
+  ctx.strokeStyle = C_WASH
+  ctx.lineWidth = 1.2
+  ctx.setLineDash([3, 5])
+  ctx.beginPath()
+  let started = false
+  for (let t = 0; t <= 1; t += 0.01) {
+    const p = wavePoint(t)
+    if (!started) { ctx.moveTo(p.x, p.y - TOLERANCE); started = true }
+    else ctx.lineTo(p.x, p.y - TOLERANCE)
+  }
+  ctx.stroke()
+  ctx.beginPath()
+  started = false
+  for (let t = 0; t <= 1; t += 0.01) {
+    const p = wavePoint(t)
+    if (!started) { ctx.moveTo(p.x, p.y + TOLERANCE); started = true }
+    else ctx.lineTo(p.x, p.y + TOLERANCE)
+  }
+  ctx.stroke()
+  ctx.setLineDash([])
+  ctx.restore()
+}
+
+// Draw the guide path in ASCII wave chars (the target to trace)
+function drawGuidePath(alpha=0.5) {
+  ctx.save()
+  setMono(14)
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  const seed = boilFrame
+  function jitter(i) { const v = Math.sin(i*11.3 + seed*7.7); return (v - Math.floor(v)) - 0.5 }
+  
+  const N = 140
+  for (let i = 0; i < N; i++) {
+    const t = i/N
+    const p = wavePoint(t)
+    const ch = WAVE_CHARS[i % WAVE_CHARS.length]
+    // already traced portion shown more boldly
+    let a = alpha
+    let color = C_INK
+    if (t < pathProgress) {
+      a = 0.0 // will be drawn by traceChars
+      continue
+    } else if (t < pathProgress + 0.05) {
+      color = C_RUST
+      a = 0.7
+    } else {
+      a = alpha * (1 - Math.max(0, (t - pathProgress - 0.2))*0.6)
+    }
+    ctx.globalAlpha = a
+    ctx.fillStyle = color
+    ctx.fillText(ch, p.x + jitter(i)*1.0, p.y + jitter(i+500)*1.0)
+  }
+  ctx.globalAlpha = 1
+  ctx.restore()
+}
+
+// Draw traced characters (player's drawn signal)
+function drawTraced() {
+  ctx.save()
+  setMono(15)
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  for (const t of traceChars) {
+    ctx.globalAlpha = state === 'lose' ? Math.max(0, 1 - staticLevel*1.5) : 1
+    ctx.fillStyle = C_INK
+    // boil jitter
+    const jx = t.jx + (boilFrame % 2 === 0 ? 0.3 : -0.3)
+    const jy = t.jy + (boilFrame % 2 === 0 ? -0.2 : 0.2)
+    ctx.fillText(t.ch, t.x + jx, t.y + jy)
+  }
+  ctx.globalAlpha = 1
+  ctx.restore()
+}
+
+// Pointer cursor
+function drawPointer() {
+  if (state !== 'play') return
+  ctx.save()
+  ctx.strokeStyle = pointer.active ? C_RUST : C_BLUE
+  ctx.lineWidth = 1.5
+  ctx.beginPath()
+  ctx.arc(pointer.x, pointer.y, 10, 0, Math.PI*2)
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.moveTo(pointer.x - 14, pointer.y)
+  ctx.lineTo(pointer.x - 6, pointer.y)
+  ctx.moveTo(pointer.x + 6, pointer.y)
+  ctx.lineTo(pointer.x + 14, pointer.y)
+  ctx.moveTo(pointer.x, pointer.y - 14)
+  ctx.lineTo(pointer.x, pointer.y - 6)
+  ctx.moveTo(pointer.x, pointer.y + 6)
+  ctx.lineTo(pointer.x, pointer.y + 14)
+  ctx.stroke()
+  ctx.restore()
+}
+
+function drawStatic() {
+  if (staticChars.length === 0) return
+  ctx.save()
+  setMono(13)
+  ctx.fillStyle = C_INK
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  for (const s of staticChars) {
+    ctx.globalAlpha = s.a * staticLevel
+    ctx.fillText(s.ch, s.x, s.y)
+  }
+  ctx.globalAlpha = 1
+  ctx.restore()
+}
+
+function renderTitle() {
+  // background wash + stipple
+  drawStipple(40, 40, W-80, H-80, 0.015)
+  // shadow zones in corners
+  drawShadowZone(40, H-150, 200, 100, 0.5)
+  drawShadowZone(W-220, 60, 180, 80, 0.5)
+  
+  drawTearBorder()
+  
+  const cx = W/2
+  let y = H*0.18
+  drawText('Falling Frequency', cx + wobbleOffset.x*0.4, y, Math.min(72, W*0.11), C_INK, 'center', 'Caveat')
+  y += Math.min(78, W*0.13)
+  drawText('— a transmission in monochrome —', cx, y, 22, C_RUST, 'center', 'Caveat')
+  
+  // a small sample wave
+  ctx.save()
+  setMono(16)
+  ctx.fillStyle = C_INK
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  const sw = Math.min(W*0.7, 520)
+  const sx = cx - sw/2
+  const sy = H*0.5
+  for (let i=0; i<30; i++) {
+    const t = i/30
+    const ch = WAVE_CHARS[i % WAVE_CHARS.length]
+    const yy = sy + Math.sin(t*Math.PI*3 + boilFrame*0.5)*14 + t*30
+    ctx.globalAlpha = 0.4 + Math.sin(i*0.7 + boilFrame)*0.2
+    ctx.fillText(ch, sx + t*sw, yy)
+  }
+  ctx.globalAlpha = 1
+  ctx.restore()
+  
+  y = H*0.68
+  drawText('Trace the last signal of a dying star.', cx, y, 22, C_INK, 'center', 'Kalam')
+  y += 32
+  drawText('Press and hold. Follow the wave. Do not lift.', cx, y, 20, C_INK, 'center', 'Kalam')
+  y += 28
+  drawText('Stray from the corridor — and silence falls.', cx, y, 20, C_BLUE, 'center', 'Kalam')
+  
+  y = H - 80
+  const blink = (Math.sin(performance.now()*0.003) + 1)*0.5
+  ctx.globalAlpha = 0.5 + blink*0.5
+  drawText('▸ click / tap / press Enter to begin ◂', cx, y, 24, C_RUST, 'center', 'Caveat')
+  ctx.globalAlpha = 1
+}
+
+function renderPlay() {
+  // wash
+  drawStipple(40, 40, W-80, H-80, 0.012)
+  // shadow zone bottom-right (where signal descends into)
+  drawShadowZone(W*0.55, H*0.55, W*0.4, H*0.35, 0.4)
+  // shadow zone top-left margin
+  drawShadowZone(40, H*0.1, 100, H*0.4, 0.6)
+  
+  drawTearBorder()
+  
+  // header
+  drawText('TRANSMISSION  ::  μ-Cygni  ::  fading', 48 + wobbleOffset.x, 38 + wobbleOffset.y, 20, C_INK, 'left', 'Kalam')
+  drawText('signal: ' + Math.floor(pathProgress*100) + '%', W-48, 38, 20, C_RUST, 'right', 'Kalam')
+  
+  // corridor and path
+  drawCorridor()
+  drawGuidePath(0.4)
+  drawTraced()
+  
+  // start marker
+  const start = wavePoint(0)
+  ctx.save()
+  ctx.strokeStyle = pathProgress < 0.01 ? C_RUST : C_WASH
+  ctx.lineWidth = 1.4
+  ctx.beginPath()
+  ctx.arc(start.x, start.y, 14 + Math.sin(performance.now()*0.005)*1.5, 0, Math.PI*2)
+  ctx.stroke()
+  drawText('start', start.x - 26, start.y - 32, 16, C_INK, 'left', 'Caveat')
+  ctx.restore()
+  
+  // end marker
+  const end = wavePoint(1)
+  ctx.save()
+  ctx.strokeStyle = C_BLUE
+  ctx.lineWidth = 1.4
+  ctx.beginPath()
+  ctx.arc(end.x, end.y, 12, 0, Math.PI*2)
+  ctx.stroke()
+  drawText('end', end.x + 14, end.y + 6, 16, C_BLUE, 'left', 'Caveat')
+  ctx.restore()
+  
+  // hint if not started
+  if (pathProgress < 0.005) {
+    drawText('press here ↓', start.x - 50, start.y + 22, 18, C_RUST, 'left', 'Caveat')
+  }
+  
+  drawPointer()
+  
+  // footer note
+  drawText('hold the line — do not pause —', 48, H-46, 18, C_INK, 'left', 'Caveat')
+}
+
+function renderLose() {
+  renderPlay() // base
+  drawStatic()
+  
+  // overlay tear after some static
+  if (staticLevel > 0.4) {
+    ctx.save()
+    ctx.fillStyle = C_BG
+    ctx.globalAlpha = 0.7 * staticLevel
+    ctx.fillRect(W*0.1, H*0.35, W*0.8, H*0.3)
+    ctx.restore()
+    
+    const cx = W/2
+    let y = H*0.4
+    ctx.globalAlpha = Math.min(1, (staticLevel - 0.4)*2)
+    drawText('signal lost.', cx, y, 48, C_RUST, 'center', 'Caveat')
+    y += 56
+    drawText(failReason, cx, y, 22, C_INK, 'center', 'Kalam')
+    y += 60
+    drawText('the carrier collapsed into silence.', cx, y, 20, C_INK, 'center', 'Kalam')
+    y += 50
+    const blink = (Math.sin(performance.now()*0.004) + 1)*0.5
+    ctx.globalAlpha *= 0.5 + blink*0.5
+    drawText('tap to return to title', cx, y, 22, C_BLUE, 'center', 'Caveat')
+    ctx.globalAlpha = 1
+  }
+}
+
+function renderWin() {
+  // fade the world out softly
+  drawStipple(40, 40, W-80, H-80, 0.012)
+  drawTearBorder()
+  drawCorridor()
+  
+  // dim the trace
+  ctx.globalAlpha = Math.max(0.2, 1 - winFadeIn*0.7)
+  drawTraced()
+  ctx.globalAlpha = 1
+  
+  // epitaph
+  ctx.globalAlpha = winFadeIn
+  const cx = W/2
+  let y = H*0.28
+  drawText('— transmission received —', cx, y, 28, C_RUST, 'center', 'Caveat')
+  y += 60
+  drawText('"we sang as long as we could.', cx, y, 26, C_INK, 'center', 'Caveat')
+  y += 38
+  drawText('count our light among the rest."', cx, y, 26, C_INK, 'center', 'Caveat')
+  y += 70
+  drawText('μ-Cygni  ·  silent  ·  ' + new Date().getFullYear(), cx, y, 18, C_BLUE, 'center', 'Kalam')
+  y = H - 90
+  const blink = (Math.sin(performance.now()*0.003) + 1)*0.5
+  ctx.globalAlpha = winFadeIn * (0.5 + blink*0.5)
+  drawText('tap to return to title', cx, y, 22, C_BLUE, 'center', 'Caveat')
+  ctx.globalAlpha = 1
+}
+
+function render() {
+  // background paper
+  ctx.fillStyle = C_BG
+  ctx.fillRect(0, 0, W, H)
+  
+  if (state === 'title') renderTitle()
+  else if (state === 'play') renderPlay()
+  else if (state === 'lose') renderLose()
+  else if (state === 'win') renderWin()
+}
+
+function frame(now){
+  const dt = Math.min(0.05, (now - last) / 1000); last = now
+  update(dt, now); render()
+  requestAnimationFrame(frame)
+}
+requestAnimationFrame(frame)
+</script>
+</body>
+</html>

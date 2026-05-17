@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Plumb</title>
+<style>
+  html,body{margin:0;background:#ffffff;overflow:hidden;font-family:"Helvetica Neue","Helvetica",Arial,sans-serif;color:#000;-webkit-user-select:none;user-select:none;touch-action:none}
+  canvas{display:block}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');
+let W=0,H=0,DPR=1;
+function fit(){
+  DPR=devicePixelRatio||1;
+  W=innerWidth;H=innerHeight;
+  cv.style.width=W+'px';cv.style.height=H+'px';
+  cv.width=Math.floor(W*DPR);cv.height=Math.floor(H*DPR);
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+}
+addEventListener('resize',fit);fit();
+
+// ---------- audio ----------
+let actx=null;
+function audio(){if(!actx)actx=new(window.AudioContext||window.webkitAudioContext)();return actx;}
+function sine(freq,dur=0.25,gain=0.08){
+  const a=audio(),now=a.currentTime;
+  const o=a.createOscillator(),g=a.createGain();
+  o.type='sine';o.frequency.value=freq;
+  g.gain.setValueAtTime(0,now);
+  g.gain.linearRampToValueAtTime(gain,now+0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001,now+dur);
+  o.connect(g).connect(a.destination);o.start(now);o.stop(now+dur+0.02);
+}
+
+// ---------- input ----------
+const input={left:0,right:0,action:0,pointerX:null};
+const KEY={ArrowLeft:'left',ArrowRight:'right',a:'left',d:'right',A:'left',D:'right',' ':'action',Enter:'action'};
+addEventListener('keydown',e=>{const k=KEY[e.key];if(k){input[k]=1;e.preventDefault();}});
+addEventListener('keyup',e=>{const k=KEY[e.key];if(k)input[k]=0;});
+function onPointer(e){
+  const t=e.touches?e.touches[0]:e;
+  if(!t)return;
+  input.pointerX=t.clientX;
+}
+addEventListener('pointerdown',e=>{onPointer(e);if(state!=='play')handleAdvance();});
+addEventListener('pointermove',e=>{if(e.buttons||e.pointerType==='touch')onPointer(e);});
+addEventListener('pointerup',()=>{input.pointerX=null;});
+addEventListener('touchstart',e=>{onPointer(e);},{passive:true});
+addEventListener('touchmove',e=>{onPointer(e);e.preventDefault();},{passive:false});
+addEventListener('touchend',()=>{input.pointerX=null;});
+addEventListener('mousemove',e=>{if(e.buttons)onPointer(e);});
+
+// ---------- game state ----------
+let state='title'; // title | play | win | lose
+let last=performance.now();
+let t=0; // play time
+const TOTAL=30; // ~30s
+const SWELLS=3;
+
+// Segments — a cubist column
+// each segment has: width, height, parallelogram skew, offset, angle, angVel, drift parameters
+let segs=[];
+let basePivotX=0;
+let baseY=0;
+
+// shear pieces on lose
+let shards=[];
+
+// triplet beat
+let lastBeat=-1;
+const BEAT_INTERVAL=0.55; // seconds between triplet taps
+let beatPhase=0; // 0,1,2 = three taps then rest
+let beatTimer=0;
+
+function initSegments(){
+  segs=[];
+  // 7 stacked angular segments — varying widths, parallelogram skews
+  // bottom (largest) to top (smallest, head)
+  const defs=[
+    {w:120,h:34,skew:-8},
+    {w:96, h:26,skew:10},
+    {w:140,h:30,skew:-4},
+    {w:88, h:42,skew:14},
+    {w:108,h:28,skew:-12},
+    {w:72, h:22,skew:6},
+    {w:54, h:46,skew:-6}, // head
+  ];
+  for(let i=0;i<defs.length;i++){
+    const d=defs[i];
+    segs.push({
+      w:d.w,h:d.h,skew:d.skew,
+      angle:0, angVel:0,
+      driftAmp: 0.08 + i*0.012,
+      driftFreq: 0.35 + i*0.07,
+      driftPhase: i*0.9,
+      coupling: 0.7, // how much it follows base
+      limit: 0.32 - i*0.012, // tilt radians limit; harder higher up
+      x:0, y:0
+    });
+  }
+}
+
+function reset(){
+  t=0;
+  basePivotX=0;
+  shards=[];
+  beatPhase=0;beatTimer=0;
+  initSegments();
+}
+
+// ---------- update ----------
+function update(dt){
+  if(state==='play'){
+    t+=dt;
+
+    // base control: pointerX maps to target X around centre
+    const cx=W/2;
+    let target=basePivotX;
+    if(input.pointerX!=null){
+      target=(input.pointerX-cx);
+      target=Math.max(-W*0.25,Math.min(W*0.25,target));
+    }else{
+      const ks=(input.right-input.left);
+      basePivotX+=ks*180*dt;
+      target=basePivotX;
+    }
+    // smooth base
+    basePivotX += (target-basePivotX)*Math.min(1,dt*8);
+
+    // overall swell — three long waves over the play duration
+    const swellPhase = (t/TOTAL)*SWELLS*Math.PI*2;
+    const swell = Math.sin(swellPhase) * (1 - t/TOTAL*0.5); // settles toward end
+
+    // update each segment angle via independent drift + base coupling + small inertia
+    let prevTilt=0;
+    for(let i=0;i<segs.length;i++){
+      const s=segs[i];
+      // independent drift on triplet rhythm-ish
+      const drift = Math.sin(t*s.driftFreq*2*Math.PI + s.driftPhase)*s.driftAmp;
+      const swellContribution = swell * (0.04 + i*0.01);
+      // base pivot pushes via inverse: moving base right counters tilt
+      const baseInfluence = -basePivotX/W * 0.6 * (i+1)/segs.length;
+      const targetAngle = drift + swellContribution + baseInfluence + prevTilt*0.35;
+      // spring toward targetAngle
+      const k=4.0, damp=2.2;
+      const a = (targetAngle - s.angle)*k - s.angVel*damp;
+      s.angVel += a*dt;
+      s.angle += s.angVel*dt;
+      prevTilt = s.angle*0.5;
+      // check limit
+      if(Math.abs(s.angle)>s.limit){
+        triggerLose();
+        return;
+      }
+    }
+
+    // triplet beat audio: tap, tap, tap, rest
+    beatTimer+=dt;
+    if(beatTimer>=BEAT_INTERVAL){
+      beatTimer-=BEAT_INTERVAL;
+      if(beatPhase<3){
+        // near-limit? drop a semitone
+        let maxRatio=0;
+        for(const s of segs) maxRatio=Math.max(maxRatio,Math.abs(s.angle)/s.limit);
+        const base=440;
+        const freq= maxRatio>0.65 ? base*Math.pow(2,-1/12) : base;
+        sine(freq,0.32,0.05);
+      }
+      beatPhase=(beatPhase+1)%6; // 3 taps then 3 rests
+    }
+
+    // win
+    if(t>=TOTAL){
+      state='win';
+      // settle pulse
+      sine(440,0.6,0.05);
+      setTimeout(()=>sine(660,0.8,0.04),250);
+    }
+  }else if(state==='lose'){
+    // shard animation
+    for(const s of shards){
+      s.vy+=240*dt;
+      s.x+=s.vx*dt;
+      s.y+=s.vy*dt;
+      s.rot+=s.vr*dt;
+    }
+  }
+}
+
+function triggerLose(){
+  state='lose';
+  // build shards from segments at their current positions
+  shards=[];
+  layoutSegments();
+  for(const s of segs){
+    shards.push({
+      x:s.x, y:s.y, w:s.w, h:s.h, skew:s.skew,
+      angle:s.angle,
+      vx:(Math.random()-0.5)*40,
+      vy: 20 + Math.random()*30,
+      rot: s.angle,
+      vr:(Math.random()-0.5)*1.2
+    });
+  }
+}
+
+// compute pixel positions for segments (stacked)
+function layoutSegments(){
+  const cx=W/2;
+  baseY = H*0.82;
+  let curY = baseY;
+  let curX = cx + basePivotX;
+  for(let i=0;i<segs.length;i++){
+    const s=segs[i];
+    // each sits on top of previous, rotated cumulatively a bit
+    curY -= s.h;
+    // small horizontal offset from accumulated angle
+    curX += Math.sin(s.angle)* (s.h*0.6) * (i===0?0.2:1);
+    s.x = curX;
+    s.y = curY + s.h/2;
+  }
+}
+
+// ---------- render ----------
+function drawSegment(s,asShard=false){
+  ctx.save();
+  ctx.translate(s.x, s.y);
+  ctx.rotate(asShard?s.rot:s.angle);
+  ctx.fillStyle='#000000';
+  // parallelogram via path
+  const w=s.w,h=s.h,sk=s.skew;
+  ctx.beginPath();
+  ctx.moveTo(-w/2 - sk/2, -h/2);
+  ctx.lineTo( w/2 - sk/2, -h/2);
+  ctx.lineTo( w/2 + sk/2,  h/2);
+  ctx.lineTo(-w/2 + sk/2,  h/2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawAxisTicks(){
+  // cool grey ticks down the right side as measurement instrument
+  ctx.fillStyle='#b0b3b8';
+  const x = W/2 + 200;
+  if(x>W-40) return;
+  const top=H*0.12, bot=H*0.82;
+  const n=24;
+  for(let i=0;i<=n;i++){
+    const y=top+(bot-top)*(i/n);
+    const long = i%4===0;
+    ctx.fillRect(Math.round(x), Math.round(y), long?14:7, 1);
+  }
+  // vertical hairline
+  ctx.fillRect(Math.round(x-1),Math.round(top),1,bot-top);
+}
+
+function drawLeftAxis(){
+  ctx.fillStyle='#b0b3b8';
+  const x = W/2 - 200;
+  if(x<40) return;
+  const top=H*0.12, bot=H*0.82;
+  const n=24;
+  for(let i=0;i<=n;i++){
+    const y=top+(bot-top)*(i/n);
+    const long = i%4===0;
+    const len = long?14:7;
+    ctx.fillRect(Math.round(x-len), Math.round(y), len, 1);
+  }
+  ctx.fillRect(Math.round(x),Math.round(top),1,bot-top);
+}
+
+function drawBase(){
+  // signal red hairline rectangle marking the safe zone at base
+  ctx.fillStyle='#e53935';
+  const cx=W/2, by=H*0.82;
+  const half=60;
+  // hairline rectangle (1 px stroke)
+  ctx.fillRect(Math.round(cx-half), Math.round(by), half*2, 1);
+  // small ticks at corners — 4px emphasis on the boundary
+  ctx.fillRect(Math.round(cx-half), Math.round(by-3), 1, 4);
+  ctx.fillRect(Math.round(cx+half-1), Math.round(by-3), 1, 4);
+}
+
+function drawPlumbLine(){
+  // faint vertical plumb reference at base centre
+  ctx.fillStyle='#b0b3b8';
+  const cx=W/2;
+  ctx.fillRect(Math.round(cx), Math.round(H*0.10), 1, H*0.72);
+}
+
+function drawHUD(){
+  ctx.fillStyle='#000';
+  ctx.textBaseline='top';
+  ctx.textAlign='left';
+  ctx.font='bold 11px "Helvetica Neue", Helvetica, sans-serif';
+  ctx.fillText('PLUMB', 24, 24);
+  ctx.font='11px "Helvetica Neue", Helvetica, sans-serif';
+  ctx.fillStyle='#b0b3b8';
+  ctx.fillText('SWELL  '+(Math.min(SWELLS,Math.floor(t/TOTAL*SWELLS)+1))+' / '+SWELLS, 24, 42);
+
+  // progress hairline
+  ctx.fillStyle='#000';
+  ctx.fillRect(24, 64, Math.round((W-48)*(t/TOTAL)), 1);
+  ctx.fillStyle='#b0b3b8';
+  ctx.fillRect(24+Math.round((W-48)*(t/TOTAL)), 64, (W-48)-Math.round((W-48)*(t/TOTAL)), 1);
+
+  // worst tilt indicator
+  let maxR=0;
+  for(const s of segs) maxR=Math.max(maxR,Math.abs(s.angle)/s.limit);
+  ctx.textAlign='right';
+  ctx.fillStyle = maxR>0.7?'#e53935':'#000';
+  ctx.font='bold 11px "Helvetica Neue", Helvetica, sans-serif';
+  ctx.fillText('TILT', W-24, 24);
+  ctx.font='11px "Helvetica Neue", Helvetica, sans-serif';
+  ctx.fillStyle='#b0b3b8';
+  ctx.fillText(Math.round(maxR*100)+'%', W-24, 42);
+}
+
+function render(){
+  ctx.fillStyle='#ffffff';
+  ctx.fillRect(0,0,W,H);
+
+  if(state==='title'){
+    drawTitle();
+    return;
+  }
+
+  // ticks + plumb line
+  drawPlumbLine();
+  drawLeftAxis();
+  drawAxisTicks();
+
+  if(state==='lose'){
+    // collapsed shards
+    for(const s of shards){
+      drawSegment(s,true);
+    }
+    drawBase();
+    drawEnd('COLLAPSE','The line could not hold.');
+    return;
+  }
+
+  // layout & draw figure
+  layoutSegments();
+  for(let i=0;i<segs.length;i++) drawSegment(segs[i]);
+  drawBase();
+  drawHUD();
+
+  if(state==='win'){
+    drawEnd('STILL','The figure has settled.');
+  }
+}
+
+function drawTitle(){
+  // axis ticks for atmosphere
+  drawPlumbLine();
+  drawLeftAxis();
+  drawAxisTicks();
+
+  // a still cubist figure
+  const cx=W/2;
+  let y=H*0.78;
+  const defs=[
+    {w:120,h:34,skew:-8},
+    {w:96, h:26,skew:10},
+    {w:140,h:30,skew:-4},
+    {w:88, h:42,skew:14},
+    {w:108,h:28,skew:-12},
+    {w:72, h:22,skew:6},
+    {w:54, h:46,skew:-6},
+  ];
+  for(const d of defs){
+    y-=d.h;
+    drawSegment({x:cx,y:y+d.h/2,w:d.w,h:d.h,skew:d.skew,angle:0});
+  }
+  drawBase();
+
+  ctx.fillStyle='#000';
+  ctx.textAlign='left';
+  ctx.textBaseline='top';
+  ctx.font='bold 48px "Helvetica Neue", Helvetica, sans-serif';
+  ctx.fillText('PLUMB', 48, 48);
+
+  ctx.font='12px "Helvetica Neue", Helvetica, sans-serif';
+  ctx.fillStyle='#000';
+  const lines=[
+    'A line between falling and standing',
+    'is the only thing left to hold.',
+  ];
+  for(let i=0;i<lines.length;i++) ctx.fillText(lines[i], 48, 112+i*18);
+
+  ctx.fillStyle='#b0b3b8';
+  const inst=[
+    'MOVE   ← →   /   A D   /   POINTER',
+    'SURVIVE  THREE  SWELLS',
+    '',
+    'CLICK · TAP · ENTER  TO  BEGIN',
+  ];
+  for(let i=0;i<inst.length;i++) ctx.fillText(inst[i], 48, H-48-(inst.length-i)*16);
+}
+
+function drawEnd(title, sub){
+  // overlay text — Swiss restraint
+  ctx.fillStyle='#000';
+  ctx.textAlign='left';
+  ctx.textBaseline='top';
+  ctx.font='bold 36px "Helvetica Neue", Helvetica, sans-serif';
+  ctx.fillText(title, 48, 48);
+  ctx.font='12px "Helvetica Neue", Helvetica, sans-serif';
+  ctx.fillText(sub, 48, 96);
+  ctx.fillStyle='#b0b3b8';
+  ctx.fillText('CLICK · TAP · ENTER  TO  RESTART', 48, H-48);
+}
+
+function handleAdvance(){
+  audio(); // wake audio on user gesture
+  if(state==='title'){ reset(); state='play'; }
+  else if(state==='win' || state==='lose'){ reset(); state='title'; }
+}
+addEventListener('keydown',e=>{if(e.key==='Enter')handleAdvance();});
+
+function frame(now){
+  const dt=Math.min(0.04,(now-last)/1000); last=now;
+  update(dt); render();
+  requestAnimationFrame(frame);
+}
+reset();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
