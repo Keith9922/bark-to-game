@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#000000" />
+  <title>bark_to_game · 模仿狗叫生成游戏</title>
+  <style>
+    :root {
+      --bg: #000;
+      --amber: #ffb13b;
+      --amber-soft: rgba(255, 177, 59, 0.6);
+      --amber-dim: rgba(255, 177, 59, 0.3);
+      --amber-faint: rgba(255, 177, 59, 0.12);
+      --signal: #5dff8f;
+      --warn: #f5d76e;
+      --warn-bg: rgba(245, 215, 110, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg); }
+    body {
+      color: var(--amber);
+      font-family: 'JetBrains Mono', 'Cascadia Code', ui-monospace, SFMono-Regular, Menlo, monospace;
+      min-height: 100dvh;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    main {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 32px 20px 80px;
+    }
+
+    header { margin-bottom: 32px; }
+
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--amber-soft);
+      margin-bottom: 20px;
+    }
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--signal);
+      box-shadow: 0 0 8px var(--signal);
+    }
+
+    h1 {
+      font-size: clamp(40px, 9vw, 64px);
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      line-height: 0.95;
+      margin: 0 0 16px;
+      color: var(--amber);
+    }
+    h1 .accent { color: var(--signal); }
+
+    .tagline {
+      font-size: 16px;
+      color: var(--amber);
+      margin: 0 0 8px;
+      max-width: 32em;
+    }
+    .tagline strong { color: var(--signal); font-weight: 600; }
+
+    .subtle {
+      font-size: 12px;
+      color: var(--amber-soft);
+      max-width: 38em;
+      line-height: 1.6;
+    }
+
+    .notice {
+      border: 1px solid var(--warn);
+      background: var(--warn-bg);
+      padding: 16px 18px;
+      margin: 24px 0 32px;
+      font-size: 13px;
+      color: var(--warn);
+      line-height: 1.6;
+    }
+    .notice strong { display: block; margin-bottom: 6px; font-size: 14px; }
+
+    .section-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      color: var(--amber-soft);
+      margin: 32px 0 14px;
+    }
+
+    .games {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: 1fr;
+    }
+    @media (min-width: 640px) {
+      .games { grid-template-columns: 1fr 1fr; }
+    }
+
+    .game-card {
+      display: block;
+      width: 100%;
+      text-align: left;
+      background: transparent;
+      border: 1px solid var(--amber-dim);
+      padding: 18px;
+      color: var(--amber);
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .game-card:hover, .game-card:focus-visible {
+      background: var(--amber-faint);
+      border-color: var(--amber-soft);
+      outline: none;
+    }
+    .game-card .meta {
+      font-size: 10px;
+      letter-spacing: 0.15em;
+      color: var(--amber-soft);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+    }
+    .game-card .title {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--amber);
+      margin-bottom: 8px;
+      letter-spacing: -0.01em;
+    }
+    .game-card .blurb {
+      font-size: 12px;
+      color: var(--amber-soft);
+      line-height: 1.55;
+    }
+    .game-card .cta {
+      margin-top: 12px;
+      font-size: 11px;
+      color: var(--signal);
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+    }
+
+    footer {
+      margin-top: 48px;
+      padding-top: 20px;
+      border-top: 1px solid var(--amber-faint);
+      font-size: 11px;
+      color: var(--amber-soft);
+    }
+    footer p { margin: 4px 0; }
+
+    /* full-screen game player */
+    .player {
+      position: fixed;
+      inset: 0;
+      background: var(--bg);
+      z-index: 100;
+      display: none;
+      flex-direction: column;
+    }
+    .player.open { display: flex; }
+    .player-bar {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--amber-faint);
+      background: var(--bg);
+      /* keep clear of iOS notch / dynamic island */
+      padding-top: max(10px, env(safe-area-inset-top));
+    }
+    .player-bar .title {
+      font-size: 12px;
+      color: var(--amber-soft);
+      letter-spacing: 0.1em;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+      margin-right: 12px;
+    }
+    .player-bar button {
+      background: transparent;
+      border: 1px solid var(--amber-dim);
+      color: var(--amber);
+      font-family: inherit;
+      font-size: 12px;
+      padding: 6px 12px;
+      cursor: pointer;
+    }
+    .player-bar button:hover { background: var(--amber-faint); }
+    .player iframe {
+      flex: 1 1 auto;
+      width: 100%;
+      border: 0;
+      background: #000;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div class="status-row">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span>状态：DEMO MODE</span>
+      </div>
+      <h1>bark<span class="accent">_</span>to<span class="accent">_</span>game</h1>
+      <p class="tagline">
+        对着话筒<strong>模仿狗叫</strong>，让 AI 帮你做一个可玩的小游戏。
+      </p>
+      <p class="subtle">
+        完整流程：录音 → 提取声学特征（librosa + YAMNet）→ Claude 翻译成游戏概念 → Claude Code 写出可玩的 HTML5 游戏。
+      </p>
+    </header>
+
+    <section class="notice" role="note">
+      <strong>⚠️ 抖音内测演示版</strong>
+      实时的"录音 → 生成"链路依赖后端推理服务，目前在抖音互动空间内 <strong>暂未接入</strong>。
+      你现在能玩到的是 AI 之前给出的三个已生成游戏，每个都是一个独立的 HTML5 小游戏。
+    </section>
+
+    <div class="section-label">· 已生成的游戏 / DEMO GAMES ·</div>
+    <div class="games" id="games"></div>
+
+    <footer>
+      <p>bark-to-game · 模仿狗叫生成游戏</p>
+      <p>每个 demo 都是真实的 AI 生成产物：人类模仿狗叫 → 声学 token → Claude 概念 → Claude Code 直出单文件游戏。</p>
+    </footer>
+  </main>
+
+  <div class="player" id="player" role="dialog" aria-modal="true" aria-label="游戏窗口">
+    <div class="player-bar">
+      <span class="title" id="player-title">游戏</span>
+      <button type="button" id="player-close" aria-label="关闭游戏">✕ 关闭</button>
+    </div>
+    <iframe id="player-frame" title="game" allow="autoplay; gamepad; fullscreen"></iframe>
+  </div>
+
+  <script>
+    const GAMES = [
+      {
+        title: 'BARK SCRAMBLER 9000',
+        meta: '记忆 · 立体派 · Y2K 故障',
+        blurb: '看立体派狗叫面板按顺序闪烁，照样点回去。连续点错两次或撑过 5 轮即结束。',
+        src: 'games/bark-scrambler-9000.html',
+      },
+      {
+        title: 'CONCRETE VERDICT',
+        meta: '分类 · 极简瑞士风',
+        blurb: '物体从顶部落下：BARK 推到左 / QUIET 推到右。正确分拣 12 个胜出，错 3 次墙体崩裂。',
+        src: 'games/concrete-verdict.html',
+      },
+      {
+        title: 'SCHEMATICS RAIN DOWN',
+        meta: '接物 · 蓝图施工',
+        blurb: '推着绘图桌左右移动，接住下落的蓝图卷轴照亮 6 个工地，连续漏 3 张则被打上 VOID 印章。',
+        src: 'games/schematics-rain-down.html',
+      },
+    ];
+
+    const grid = document.getElementById('games');
+    const player = document.getElementById('player');
+    const playerFrame = document.getElementById('player-frame');
+    const playerTitle = document.getElementById('player-title');
+    const playerClose = document.getElementById('player-close');
+
+    function openGame(game) {
+      playerTitle.textContent = game.title;
+      playerFrame.src = game.src;
+      player.classList.add('open');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeGame() {
+      player.classList.remove('open');
+      playerFrame.src = 'about:blank';
+      document.body.style.overflow = '';
+    }
+
+    GAMES.forEach((game) => {
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'game-card';
+      card.innerHTML = `
+        <div class="meta">${game.meta}</div>
+        <div class="title">${game.title}</div>
+        <div class="blurb">${game.blurb}</div>
+        <div class="cta">▶ 开始游玩</div>
+      `;
+      card.addEventListener('click', () => openGame(game));
+      grid.appendChild(card);
+    });
+
+    playerClose.addEventListener('click', closeGame);
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && player.classList.contains('open')) closeGame();
+    });
+  </script>
+</body>
+</html>

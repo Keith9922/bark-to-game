@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>CONCRETE VERDICT</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0;
+      background: #ffffff;
+      overflow: hidden;
+      touch-action: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+'use strict';
+
+// ── Canvas setup ────────────────────────────────────────────────────────────
+const cv  = document.getElementById('c');
+const ctx = cv.getContext('2d');
+let W = 0, H = 0;
+
+function fitCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  W = window.innerWidth;
+  H = window.innerHeight;
+  cv.style.width  = W + 'px';
+  cv.style.height = H + 'px';
+  cv.width  = Math.floor(W * dpr);
+  cv.height = Math.floor(H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+window.addEventListener('resize', fitCanvas);
+fitCanvas();
+
+// ── Palette & helpers ───────────────────────────────────────────────────────
+const BLACK = '#000000';
+const WHITE = '#ffffff';
+const RED   = '#e53935';
+const GREY  = '#b0b3b8';
+
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function fnt(sz, bold) {
+  return (bold ? 'bold ' : '') + sz + 'px "Helvetica Neue", Helvetica, sans-serif';
+}
+function easeOut(t) { return 1 - (1 - t) * (1 - t); }
+
+// ── Audio ───────────────────────────────────────────────────────────────────
+let actx = null;
+function unlockAudio() {
+  if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+  if (actx.state === 'suspended') actx.resume();
+  return actx;
+}
+function sine(freq, dur, vol) {
+  try {
+    const a = unlockAudio(), t = a.currentTime;
+    const o = a.createOscillator(), g = a.createGain();
+    o.type = 'sine';
+    o.frequency.value = freq;
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vol, t + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.00001, t + dur);
+    o.connect(g).connect(a.destination);
+    o.start(t); o.stop(t + dur + 0.02);
+  } catch (_) {}
+}
+const sfx = {
+  thud:    () => sine(72,  0.16, 0.26),
+  correct: () => sine(1000, 0.04, 0.10),
+  wrong:   () => sine(108, 0.24, 0.22),
+};
+
+// ── Game constants ──────────────────────────────────────────────────────────
+const WIN_NEEDED   = 12;   // correct sorts to win
+const MAX_CRACKS   = 3;    // wrong sorts before lose
+const ITEM_TIMEOUT = 2.8;  // seconds before auto-miss
+const SPAWN_PAUSE  = 0.8;  // silence gap after each item resolves
+
+// Two categories; left bin = BARK, right bin = QUIET
+const CATS = ['BARK', 'QUIET'];
+
+// ── Game state ──────────────────────────────────────────────────────────────
+let phase = 'title'; // 'title' | 'play' | 'win' | 'lose'
+let score = 0, cracks = 0;
+let spawnClock = SPAWN_PAUSE;
+let item = null;           // { cat, x, y, age }
+let crackLines = { left: [], right: [] };
+let stamps = [];           // { side:'left'|'right', age:number }
+let shakeDur = 0;
+
+function reset() {
+  score = 0; cracks = 0;
+  spawnClock = SPAWN_PAUSE;
+  item = null;
+  crackLines = { left: [], right: [] };
+  stamps = [];
+  shakeDur = 0;
+}
+
+// vertical position where bins begin (fraction of H)
+function binTop() { return H * 0.40; }
+
+function spawnItem() {
+  const cat = CATS[Math.random() < 0.5 ? 0 : 1];
+  item = { cat, x: W * 0.5, y: -72, age: 0 };
+  spawnClock = 0;
+}
+
+function resolveItem(dir) {
+  if (!item) return;
+  const cat = item.cat;
+  item = null;
+  spawnClock = 0;
+
+  sfx.thud();
+
+  const ok = (dir === 'left'  && cat === 'BARK') ||
+             (dir === 'right' && cat === 'QUIET');
+  if (ok) {
+    score++;
+    // stamp flash arrives slightly after the thud
+    setTimeout(() => { sfx.correct(); stamps.push({ side: dir, age: 0 }); }, 170);
+  } else {
+    cracks++;
+    addCrack(dir);
+    sfx.wrong();
+    shakeDur = 0.30;
+  }
+}
+
+function missItem() {
+  if (!item) return;
+  item = null;
+  spawnClock = 0;
+  cracks++;
+  addCrack(Math.random() < 0.5 ? 'left' : 'right');
+  sfx.wrong();
+  shakeDur = 0.30;
+}
+
+function addCrack(side) {
+  const bt = binTop();
+  const bx = side === 'left' ? 8 : W * 0.58 + 8;
+  const bw = W * 0.42 - 16;
+  const by = bt + 8;
+  const bh = H - by - 8;
+
+  const x1 = bx + 8 + Math.random() * (bw - 16);
+  const y1 = by + 8 + Math.random() * (bh - 16);
+  const angle = Math.random() * Math.PI;
+  const len   = 20 + Math.random() * clamp(W * 0.10, 30, 90);
+
+  crackLines[side].push({
+    x1, y1,
+    x2: x1 + Math.cos(angle) * len,
+    y2: y1 + Math.sin(angle) * len,
+  });
+}
+
+// ── Input ───────────────────────────────────────────────────────────────────
+const held = {};
+
+function tryThrow(dir) {
+  if (phase !== 'play') return;
+  if (item) resolveItem(dir);
+}
+
+function tryAdvance() {
+  unlockAudio();
+  if (phase === 'title') { phase = 'play'; reset(); }
+  else if (phase === 'win' || phase === 'lose') { phase = 'title'; }
+}
+
+window.addEventListener('keydown', e => {
+  if (held[e.key]) return;
+  held[e.key] = true;
+  if (e.key === 'Enter' || e.key === ' ') { tryAdvance(); return; }
+  if (phase !== 'play') return;
+  if (e.key === 'ArrowLeft'  || e.key === 'a' || e.key === 'A') tryThrow('left');
+  if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') tryThrow('right');
+});
+window.addEventListener('keyup', e => { delete held[e.key]; });
+
+let txStart = null;
+window.addEventListener('touchstart', e => {
+  if (phase !== 'play') { tryAdvance(); return; }
+  txStart = e.touches[0].clientX;
+}, { passive: true });
+window.addEventListener('touchend', e => {
+  if (phase !== 'play') return;
+  const ex = e.changedTouches[0].clientX;
+  tryThrow(ex < W * 0.5 ? 'left' : 'right');
+  txStart = null;
+}, { passive: true });
+
+window.addEventListener('pointerdown', e => {
+  if (e.pointerType === 'touch') return;
+  if (phase !== 'play') { tryAdvance(); return; }
+  tryThrow(e.clientX < W * 0.5 ? 'left' : 'right');
+});
+
+// ── Update ──────────────────────────────────────────────────────────────────
+function update(dt) {
+  if (phase !== 'play') return;
+
+  if (shakeDur > 0) shakeDur = Math.max(0, shakeDur - dt);
+
+  // Item lifecycle
+  if (item) {
+    item.age += dt;
+    const p = Math.min(1, item.age / 1.5);
+    item.y = -72 + (H * 0.23 + 72) * easeOut(p);
+    if (item.age >= ITEM_TIMEOUT) missItem();
+  } else {
+    spawnClock += dt;
+    if (spawnClock >= SPAWN_PAUSE) spawnItem();
+  }
+
+  stamps = stamps.filter(s => s.age < 0.45);
+  stamps.forEach(s => { s.age += dt; });
+
+  if (cracks >= MAX_CRACKS && phase === 'play') { phase = 'lose'; stamps = []; }
+  if (score  >= WIN_NEEDED  && phase === 'play') { phase = 'win';  stamps = []; }
+}
+
+// ── Draw bins ───────────────────────────────────────────────────────────────
+function drawBins() {
+  const bt  = binTop();
+  const lx  = 8,          rx = W * 0.58 + 8;
+  const bw  = W * 0.42 - 16;
+  const bh  = H - bt - 8;
+  const lcx = lx + bw * 0.5;
+  const rcx = rx + bw * 0.5;
+  const bcy = bt + bh * 0.5;
+
+  // Left bin slab
+  ctx.fillStyle = BLACK;
+  ctx.fillRect(lx, bt, bw, bh);
+
+  // Right bin slab
+  ctx.fillRect(rx, bt, bw, bh);
+
+  // Category labels — oversized Helvetica Neue Bold
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'middle';
+  const lsz = clamp(W * 0.085, 32, 88);
+
+  ctx.fillStyle = WHITE;
+  ctx.font = fnt(lsz, true);
+  ctx.fillText('BARK',  lcx, bcy);
+
+  ctx.font = fnt(lsz * 0.74, true);
+  ctx.fillText('QUIET', rcx, bcy);
+
+  // Hairline crack lines — signal red
+  ctx.strokeStyle = RED;
+  ctx.lineWidth   = 1.5;
+  ctx.lineCap     = 'round';
+  ['left', 'right'].forEach(side => {
+    crackLines[side].forEach(l => {
+      ctx.beginPath();
+      ctx.moveTo(l.x1, l.y1);
+      ctx.lineTo(l.x2, l.y2);
+      ctx.stroke();
+    });
+  });
+
+  // Stamp flash — red square, surgical accent on correct sort
+  stamps.forEach(s => {
+    const alpha = Math.max(0, 1 - s.age / 0.45);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle   = RED;
+    const sq = clamp(lsz * 0.55, 18, 52);
+    const cx = s.side === 'left' ? lcx : rcx;
+    const cy = bt + bh * 0.18;
+    ctx.fillRect(Math.round(cx - sq * 0.5), Math.round(cy - sq * 0.5), sq, sq);
+    ctx.globalAlpha = 1;
+  });
+}
+
+// ── Render: title ───────────────────────────────────────────────────────────
+function renderTitle() {
+  drawBins();
+
+  const ty  = H * 0.09;
+  const tsz = clamp(W * 0.096, 38, 80);
+
+  ctx.fillStyle    = BLACK;
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'top';
+  ctx.font = fnt(tsz, true);
+  ctx.fillText('CONCRETE', W * 0.5, ty);
+  ctx.fillText('VERDICT',  W * 0.5, ty + tsz * 1.05);
+
+  // Red rule
+  ctx.fillStyle = RED;
+  ctx.fillRect(Math.round(W * 0.5 - W * 0.10), Math.round(ty + tsz * 2.25), Math.round(W * 0.20), 3);
+
+  const ssz = clamp(W * 0.028, 12, 18);
+  ctx.fillStyle    = GREY;
+  ctx.textBaseline = 'top';
+  ctx.font = fnt(ssz, false);
+  ctx.fillText('SORT OR BE SORTED', W * 0.5, ty + tsz * 2.55);
+  ctx.fillText('← / A    BARK   ·   QUIET   D / →', W * 0.5, ty + tsz * 3.15);
+  ctx.fillText('TAP LEFT HALF  ·  TAP RIGHT HALF', W * 0.5, ty + tsz * 3.70);
+
+  ctx.fillStyle = BLACK;
+  ctx.font = fnt(ssz, true);
+  ctx.fillText('PRESS ENTER OR CLICK TO BEGIN', W * 0.5, ty + tsz * 4.40);
+}
+
+// ── Render: gameplay ─────────────────────────────────────────────────────────
+function renderPlay() {
+  drawBins();
+
+  // Score — top left
+  const ssz = clamp(W * 0.046, 18, 32);
+  ctx.fillStyle    = BLACK;
+  ctx.textAlign    = 'left';
+  ctx.textBaseline = 'top';
+  ctx.font = fnt(ssz, true);
+  ctx.fillText(score + ' / ' + WIN_NEEDED, 16, 14);
+
+  // Crack indicators — top right (grey = intact, red = cracked)
+  const isz = Math.round(clamp(W * 0.026, 14, 22));
+  const igp = 6;
+  for (let i = 0; i < MAX_CRACKS; i++) {
+    ctx.fillStyle = i < cracks ? RED : GREY;
+    ctx.fillRect(
+      Math.round(W - 16 - (MAX_CRACKS - i) * (isz + igp)),
+      14, isz, isz
+    );
+  }
+
+  // Directional hints (grey, near bin tops)
+  const hsz = clamp(W * 0.024, 11, 17);
+  const hy  = binTop() * 0.72;
+  ctx.fillStyle = GREY;
+  ctx.font = fnt(hsz, false);
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  ctx.fillText('← BARK',  16, hy);
+  ctx.textAlign = 'right';
+  ctx.fillText('QUIET →', W - 16, hy);
+
+  // Falling item
+  if (item) {
+    const iw = clamp(W * 0.30, 96, 200);
+    const ih = clamp(H * 0.075, 48, 72);
+    const ix = Math.round(item.x - iw * 0.5);
+    const iy = Math.round(item.y - ih * 0.5);
+
+    ctx.fillStyle = BLACK;
+    ctx.fillRect(ix, iy, iw, ih);
+
+    ctx.fillStyle    = WHITE;
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = fnt(clamp(W * 0.052, 20, 36), true);
+    ctx.fillText(item.cat, item.x, item.y);
+
+    // Countdown bar — red, shrinks as time runs out
+    const ratio = Math.max(0, 1 - item.age / ITEM_TIMEOUT);
+    ctx.fillStyle = RED;
+    ctx.fillRect(ix, iy + ih + 5, Math.round(iw * ratio), 3);
+  }
+}
+
+// ── Render: end screen ───────────────────────────────────────────────────────
+function renderEnd() {
+  drawBins();
+
+  // White veil — sharp on, no fade
+  ctx.fillStyle = 'rgba(255,255,255,0.91)';
+  ctx.fillRect(0, 0, W, H);
+
+  const isWin = phase === 'win';
+  const bsz   = clamp(W * 0.12, 44, 84);
+
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle    = isWin ? BLACK : RED;
+  ctx.font = fnt(bsz, true);
+  ctx.fillText(isWin ? 'SORTED.' : 'SHATTERED.', W * 0.5, H * 0.33);
+
+  const msz = clamp(W * 0.042, 15, 28);
+  ctx.fillStyle = BLACK;
+  ctx.font = fnt(msz, false);
+  ctx.fillText(
+    isWin
+      ? score  + ' VERDICTS — SYSTEM STABLE'
+      : cracks + ' CRACKS — FAÇADE FAILED',
+    W * 0.5, H * 0.46
+  );
+
+  // Rule
+  ctx.fillStyle = BLACK;
+  ctx.fillRect(Math.round(W * 0.5 - W * 0.12), Math.round(H * 0.535), Math.round(W * 0.24), 3);
+
+  const rsz = clamp(W * 0.026, 11, 17);
+  ctx.fillStyle = GREY;
+  ctx.font = fnt(rsz, false);
+  ctx.fillText('CLICK OR PRESS ENTER TO RETURN', W * 0.5, H * 0.60);
+}
+
+// ── Main loop ────────────────────────────────────────────────────────────────
+let last = performance.now();
+
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  update(dt);
+
+  ctx.save();
+
+  // Screen shake on wrong sort
+  if (shakeDur > 0) {
+    const mag = (shakeDur / 0.30) * 10;
+    ctx.translate(
+      (Math.random() - 0.5) * mag * 2,
+      (Math.random() - 0.5) * mag
+    );
+  }
+
+  // Background
+  ctx.fillStyle = WHITE;
+  ctx.fillRect(0, 0, W, H);
+
+  if      (phase === 'title') renderTitle();
+  else if (phase === 'play')  renderPlay();
+  else                        renderEnd();
+
+  ctx.restore();
+  requestAnimationFrame(frame);
+}
+
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

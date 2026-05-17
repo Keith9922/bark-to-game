@@ -39,6 +39,9 @@ data/
 backend/.env
 frontend/.env.local
 
+# Build artifact (rebuilt by scripts/build-douyin-bundle.sh)
+bark-to-game-douyin.zip
+
 # Claude Code
 .claude/settings.local.json
 .claude/local/
