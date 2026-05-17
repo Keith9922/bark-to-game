@@ -1,0 +1,756 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SIGNAL DECAY</title>
+<style>
+  html,body{margin:0;background:#0d0033;overflow:hidden;font-family:"JetBrains Mono",monospace;color:#00ffff;touch-action:manipulation;-webkit-user-select:none;user-select:none}
+  canvas{display:block;image-rendering:pixelated;image-rendering:crisp-edges}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(() => {
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+// Logical resolution — snap to 8px grid
+const W = 384, H = 480; // 48x60 of 8px cells
+let scale = 1, offX = 0, offY = 0;
+
+function fitCanvas(){
+  const dpr = devicePixelRatio || 1;
+  const iw = innerWidth, ih = innerHeight;
+  scale = Math.max(1, Math.floor(Math.min(iw/W, ih/H)));
+  const cssW = W*scale, cssH = H*scale;
+  cv.style.width = cssW+'px';
+  cv.style.height = cssH+'px';
+  cv.style.position='absolute';
+  cv.style.left = ((iw-cssW)/2)+'px';
+  cv.style.top = ((ih-cssH)/2)+'px';
+  cv.width = Math.floor(W*scale*dpr);
+  cv.height = Math.floor(H*scale*dpr);
+  ctx.setTransform(scale*dpr,0,0,scale*dpr,0,0);
+  ctx.imageSmoothingEnabled = false;
+  offX = parseFloat(cv.style.left); offY = parseFloat(cv.style.top);
+}
+addEventListener('resize', fitCanvas); fitCanvas();
+
+// ---- Audio ----
+let actx = null, hum = null, humGain = null;
+function audio(){ if(!actx){ actx = new (window.AudioContext||window.webkitAudioContext)(); } return actx; }
+function startHum(){
+  if(hum) return;
+  const a = audio();
+  hum = a.createOscillator();
+  hum.type = 'sine';
+  hum.frequency.value = 60;
+  humGain = a.createGain();
+  humGain.gain.value = 0.025;
+  hum.connect(humGain).connect(a.destination);
+  hum.start();
+}
+function setHumIntensity(level){
+  if(!humGain) return;
+  humGain.gain.setTargetAtTime(0.02 + level*0.025, audio().currentTime, 0.1);
+}
+function blip(freq=880, dur=0.09, type='triangle', gain=0.12){
+  const a = audio(), now = a.currentTime;
+  const o = a.createOscillator(), g = a.createGain();
+  o.type = type; o.frequency.value = freq;
+  g.gain.setValueAtTime(0, now);
+  g.gain.linearRampToValueAtTime(gain, now+0.003);
+  g.gain.exponentialRampToValueAtTime(0.0001, now+dur);
+  o.connect(g).connect(a.destination);
+  o.start(now); o.stop(now+dur+0.02);
+}
+function wrongBuzz(){
+  const a = audio(), now = a.currentTime;
+  const o = a.createOscillator(), g = a.createGain();
+  o.type = 'square';
+  o.frequency.setValueAtTime(220, now);
+  o.frequency.linearRampToValueAtTime(185, now+0.25);
+  g.gain.setValueAtTime(0, now);
+  g.gain.linearRampToValueAtTime(0.1, now+0.005);
+  g.gain.exponentialRampToValueAtTime(0.0001, now+0.3);
+  o.connect(g).connect(a.destination);
+  o.start(now); o.stop(now+0.32);
+}
+function successChime(){
+  blip(660,0.08,'triangle',0.12);
+  setTimeout(()=>blip(990,0.12,'triangle',0.12),80);
+}
+function winChime(){
+  [523,659,784,1047].forEach((f,i)=>setTimeout(()=>blip(f,0.18,'triangle',0.14),i*120));
+}
+function loseTone(){
+  const a = audio(), now = a.currentTime;
+  const o = a.createOscillator(), g = a.createGain();
+  o.type='square';
+  o.frequency.setValueAtTime(200, now);
+  o.frequency.exponentialRampToValueAtTime(40, now+0.9);
+  g.gain.setValueAtTime(0.12, now);
+  g.gain.exponentialRampToValueAtTime(0.0001, now+1.0);
+  o.connect(g).connect(a.destination);
+  o.start(now); o.stop(now+1.05);
+}
+
+// ---- Glyphs (8x8 pixel art, drawn procedurally) ----
+// 16 unique simple glyph patterns expressed as 8x8 bitmaps
+const GLYPHS = [
+  "....X...X.XXX.X....X....X.XXX.X........", // unused placeholder
+];
+// Build by hand: array of 8 strings of length 8 ('X' or '.')
+const G = [
+  ["..XXXX..","XX....XX","X..XX..X","X.X..X.X","X.X..X.X","X..XX..X","XX....XX","..XXXX.."], // eye
+  ["XXXXXXXX","X......X","X.XXXX.X","X.X..X.X","X.X..X.X","X.XXXX.X","X......X","XXXXXXXX"], // square
+  ["...XX...","..XXXX..",".XX..XX.","XX....XX","XX....XX",".XX..XX.","..XXXX..","...XX..."], // diamond
+  ["X......X",".X....X.","..X..X..","...XX...","...XX...","..X..X..",".X....X.","X......X"], // X
+  ["XXXXXXXX","X......X","X......X","X......X","X......X","X......X","X......X","XXXXXXXX"], // frame
+  ["....X...","...XXX..","..XX.XX.",".XX...XX","XX.....X","X......X","XXXXXXXX","X......X"], // arrow-tri
+  ["XX.XX.XX","XX.XX.XX","........","XX.XX.XX","XX.XX.XX","........","XX.XX.XX","XX.XX.XX"], // dots
+  ["...X....","...X....","...X....","XXXXXXXX","...X....","...X....","...X....","...X...."], // plus
+  ["XXXXXXX.","......X.","......X.","XXXXXXX.","X.......","X.......","XXXXXXXX","........"], // S-shape
+  ["X.X.X.X.",".X.X.X.X","X.X.X.X.",".X.X.X.X","X.X.X.X.",".X.X.X.X","X.X.X.X.",".X.X.X.X"], // checker
+  ["...XX...","..X..X..",".X....X.","X......X","X......X",".X....X.","..X..X..","...XX..."], // ellipse
+  ["XXXXXXXX",".X....X.","..X..X..","...XX...","...XX...","..X..X..",".X....X.","XXXXXXXX"], // hourglass
+  ["X.....X.","XX...XX.","X.X.X.X.","X..X..X.","X.X.X.X.","XX...XX.","X.....X.","........"], // bowtie
+  ["..XXXX..",".X....X.","X..XX..X","X.X..X.X","X.X..X.X","X..XX..X",".X....X.","..XXXX.."], // ring
+  ["XXX..XXX","X......X","X......X","....X...","...X....","X......X","X......X","XXX..XXX"], // bracket
+  ["X.XXXX.X","XX....XX","....XX..","...XXXX.","...XXXX.","....XX..","XX....XX","X.XXXX.X"], // sigil
+];
+
+function drawGlyph(bitmap, x, y, color, px=2){
+  ctx.fillStyle = color;
+  for(let row=0;row<8;row++){
+    const line = bitmap[row];
+    for(let col=0;col<8;col++){
+      if(line[col]==='X'){
+        ctx.fillRect(x+col*px, y+row*px, px, px);
+      }
+    }
+  }
+}
+// Glyph with magenta mis-registration ghost 2 px offset
+function drawGlyphCRT(idx, x, y, px=2, alphaCyan=1, alphaMag=1){
+  const bm = G[idx];
+  // magenta ghost (offset +2,+2)
+  if(alphaMag>0){
+    ctx.globalAlpha = 0.7*alphaMag;
+    drawGlyph(bm, x+2, y+2, '#ff00ff', px);
+  }
+  // cyan main
+  ctx.globalAlpha = alphaCyan;
+  drawGlyph(bm, x, y, '#00ffff', px);
+  ctx.globalAlpha = 1;
+}
+
+// ---- Game state ----
+let state = 'title'; // title | show | input | success | fail | win | lose
+let round = 1;
+const maxRound = 12;
+let failures = 0;
+const maxFailures = 3;
+let sequence = [];     // glyph indices
+let gridGlyphs = [];   // shuffled glyph indices shown in grid
+let playerIdx = 0;     // next index in sequence to match
+let showIdx = 0;
+let showTimer = 0;
+let showDuration = 0.55; // seconds per glyph display in round 1
+const showFloor = 0.18;
+let gapDuration = 0.18;
+let phase = 'glyph'; // 'glyph' | 'gap'
+let timerMax = 6.0, timer = 6.0;
+let flicker = 0; // frames of flicker effect
+let wrongFlash = 0;
+let successFlash = 0;
+let decayProgress = 0; // 0..1 for lose animation
+let lastTime = performance.now();
+let frameCount = 0;
+let pulse = 0;
+let particles = []; // for decay animation
+
+function shuffle(arr){
+  for(let i=arr.length-1;i>0;i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [arr[i],arr[j]] = [arr[j],arr[i]];
+  }
+  return arr;
+}
+
+function startRound(r){
+  round = r;
+  const seqLen = Math.min(3 + Math.floor((r-1)/2), 8); // grows 3->8
+  // Actually spec: 3-6 with +1 per round; cap at 6
+  const len = Math.min(3 + (r-1), 6);
+  sequence = [];
+  const pool = [...Array(16).keys()];
+  shuffle(pool);
+  for(let i=0;i<len;i++) sequence.push(pool[i]);
+  // grid: 9 glyphs (3x3) containing all sequence + extras
+  const gridSize = 9;
+  const gridSet = new Set(sequence);
+  let i = len;
+  let extraPool = pool.slice(len);
+  while(gridSet.size < gridSize && extraPool.length){
+    gridSet.add(extraPool.shift());
+  }
+  gridGlyphs = shuffle([...gridSet]);
+  playerIdx = 0;
+  showIdx = 0;
+  showTimer = 0;
+  phase = 'glyph';
+  // show duration shrinks each round (2 frames at 60fps = ~0.033s)
+  showDuration = Math.max(showFloor, 0.55 - (r-1)*0.033);
+  // timer
+  timerMax = 4 + len*0.7;
+  timer = timerMax;
+  state = 'show';
+  setHumIntensity(Math.min(1, (r-1)/11));
+}
+
+function reset(){
+  round = 1;
+  failures = 0;
+  decayProgress = 0;
+  particles = [];
+  state = 'title';
+  setHumIntensity(0);
+}
+
+// ---- Input ----
+const KEY_RESTART = new Set(['Enter',' ']);
+addEventListener('keydown', e => {
+  if(e.key === 'Enter' || e.key === ' '){
+    e.preventDefault();
+    handleAction();
+  }
+});
+
+function canvasToLogical(clientX, clientY){
+  const rect = cv.getBoundingClientRect();
+  const x = (clientX - rect.left) * (W / rect.width);
+  const y = (clientY - rect.top) * (H / rect.height);
+  return {x, y};
+}
+
+cv.addEventListener('pointerdown', (e)=>{
+  e.preventDefault();
+  audio(); startHum();
+  const p = canvasToLogical(e.clientX, e.clientY);
+  handlePointer(p.x, p.y);
+});
+
+function handleAction(){
+  audio(); startHum();
+  if(state === 'title'){ startRound(1); return; }
+  if(state === 'win' || state === 'lose'){ reset(); return; }
+}
+
+function handlePointer(x, y){
+  if(state === 'title'){ startRound(1); return; }
+  if(state === 'win' || state === 'lose'){ reset(); return; }
+  if(state === 'input'){
+    // Check grid
+    const gx = 48, gy = 232;
+    const cellSize = 80; // 8px grid: glyph 16px + padding
+    const cellGap = 16;
+    for(let i=0;i<9;i++){
+      const cx = gx + (i%3)*(cellSize+cellGap);
+      const cy = gy + Math.floor(i/3)*(cellSize+cellGap);
+      if(x>=cx && x<cx+cellSize && y>=cy && y<cy+cellSize){
+        selectGlyph(i);
+        return;
+      }
+    }
+  }
+}
+
+function selectGlyph(gridIdx){
+  const chosen = gridGlyphs[gridIdx];
+  const expected = sequence[playerIdx];
+  if(chosen === expected){
+    playerIdx++;
+    blip(660 + playerIdx*60, 0.08, 'triangle', 0.12);
+    flicker = 3;
+    if(playerIdx >= sequence.length){
+      // round complete
+      successFlash = 20;
+      successChime();
+      state = 'success';
+      setTimeout(()=>{
+        if(round >= maxRound){
+          state = 'win';
+          winChime();
+        } else {
+          startRound(round+1);
+        }
+      }, 900);
+    }
+  } else {
+    failRound();
+  }
+}
+
+function failRound(){
+  wrongBuzz();
+  failures++;
+  wrongFlash = 30;
+  if(failures >= maxFailures){
+    state = 'lose';
+    loseTone();
+    // spawn decay particles
+    particles = [];
+    for(let i=0;i<120;i++){
+      particles.push({
+        x: Math.random()*W,
+        y: Math.random()*H,
+        vx: (Math.random()-0.5)*20,
+        vy: (Math.random())*30+10,
+        life: Math.random()*2+1,
+        c: Math.random()<0.5?'#00ffff':'#ff00ff'
+      });
+    }
+  } else {
+    state = 'fail';
+    setTimeout(()=>{ startRound(round); }, 1100);
+  }
+}
+
+// ---- Update ----
+function update(dt){
+  frameCount++;
+  pulse = (pulse + dt*4) % (Math.PI*2);
+  if(flicker>0) flicker--;
+  if(wrongFlash>0) wrongFlash--;
+  if(successFlash>0) successFlash--;
+
+  if(state === 'show'){
+    showTimer += dt;
+    if(phase === 'glyph'){
+      if(showTimer >= showDuration){
+        showTimer = 0;
+        phase = 'gap';
+      }
+    } else {
+      if(showTimer >= gapDuration){
+        showTimer = 0;
+        phase = 'glyph';
+        showIdx++;
+        if(showIdx < sequence.length){
+          blip(880 + showIdx*40, 0.07, 'triangle', 0.1);
+        } else {
+          // done showing
+          state = 'input';
+          timer = timerMax;
+        }
+      }
+    }
+    if(phase === 'glyph' && showTimer < dt*1.5 && showIdx===0 && state==='show'){
+      // first glyph blip
+      // handled below by check on first transition
+    }
+  }
+
+  if(state === 'input'){
+    timer -= dt;
+    if(timer <= 0){
+      failRound();
+    }
+  }
+
+  if(state === 'lose'){
+    decayProgress = Math.min(1, decayProgress + dt*0.5);
+    for(const p of particles){
+      p.x += p.vx*dt;
+      p.y += p.vy*dt;
+      p.vy += 40*dt;
+      p.life -= dt;
+    }
+    particles = particles.filter(p=>p.life>0 && p.y<H+20);
+  }
+}
+
+// Trigger first glyph blip on entering show state
+let lastState = '';
+function checkStateChange(){
+  if(state !== lastState){
+    if(state === 'show'){
+      blip(880, 0.07, 'triangle', 0.1);
+    }
+    lastState = state;
+  }
+}
+
+// ---- Render ----
+function clearBG(){
+  ctx.fillStyle = '#0d0033';
+  ctx.fillRect(0,0,W,H);
+}
+
+function drawScanlines(){
+  ctx.fillStyle = '#000';
+  ctx.globalAlpha = 0.18;
+  for(let y=0;y<H;y+=2){
+    ctx.fillRect(0,y,W,1);
+  }
+  ctx.globalAlpha = 1;
+  // vertical CRT vignette via dim edges
+  ctx.fillStyle = '#000';
+  ctx.globalAlpha = 0.15;
+  ctx.fillRect(0,0,W,4);
+  ctx.fillRect(0,H-4,W,4);
+  ctx.globalAlpha = 1;
+}
+
+function drawFrame(){
+  // 8px aligned border
+  ctx.fillStyle = '#00ffff';
+  // top
+  ctx.fillRect(8,8,W-16,2);
+  ctx.fillRect(8,H-10,W-16,2);
+  ctx.fillRect(8,8,2,H-16);
+  ctx.fillRect(W-10,8,2,H-16);
+  // magenta ghost
+  ctx.globalAlpha = 0.4;
+  ctx.fillStyle = '#ff00ff';
+  ctx.fillRect(10,10,W-16,2);
+  ctx.fillRect(10,H-8,W-16,2);
+  ctx.fillRect(10,10,2,H-16);
+  ctx.fillRect(W-8,10,2,H-16);
+  ctx.globalAlpha = 1;
+}
+
+function pxText(str, x, y, size, color, align='left'){
+  ctx.fillStyle = color;
+  ctx.textAlign = align;
+  ctx.textBaseline = 'top';
+  ctx.font = size+'px "Press Start 2P", "Courier New", monospace';
+  ctx.fillText(str, Math.round(x), Math.round(y));
+}
+
+function pxTextGhosted(str, x, y, size, align='center'){
+  // magenta ghost offset
+  ctx.globalAlpha = 0.7;
+  pxText(str, x+2, y+2, size, '#ff00ff', align);
+  ctx.globalAlpha = 1;
+  pxText(str, x, y, size, '#00ffff', align);
+}
+
+function renderTitle(){
+  clearBG();
+  // Big title
+  pxTextGhosted('SIGNAL', W/2, 88, 32, 'center');
+  pxTextGhosted('DECAY', W/2, 136, 32, 'center');
+  // subtitle
+  pxText('// transmission incoming', W/2, 200, 10, '#ffaa00', 'center');
+  // sample glyphs
+  const samples = [0,3,7,13];
+  for(let i=0;i<4;i++){
+    const x = W/2 - 80 + i*44;
+    const flick = (frameCount + i*7) % 60 < 56;
+    if(flick) drawGlyphCRT(samples[i], x, 240, 2);
+  }
+  // instructions
+  pxText('WATCH THE SEQUENCE', W/2, 312, 10, '#00ffff', 'center');
+  pxText('REPEAT FROM MEMORY', W/2, 332, 10, '#00ffff', 'center');
+  pxText('12 ROUNDS TO RESTORE', W/2, 352, 10, '#00ff41', 'center');
+  // press
+  const blink = Math.floor(frameCount/30)%2===0;
+  if(blink) pxText('[ TAP / ENTER TO BEGIN ]', W/2, 408, 10, '#ffaa00', 'center');
+  drawFrame();
+  drawScanlines();
+}
+
+function drawHeader(){
+  // Round counter
+  pxText('ROUND', 24, 24, 8, '#ffaa00');
+  pxText(String(round).padStart(2,'0')+'/12', 24, 38, 14, '#00ffff');
+  // Failures
+  pxText('ERRORS', W-24, 24, 8, '#ffaa00', 'right');
+  // draw 3 boxes
+  for(let i=0;i<3;i++){
+    const bx = W-24 - (3-i)*14;
+    ctx.fillStyle = i<failures ? '#ff00ff' : '#0d0033';
+    ctx.fillRect(bx, 40, 10, 10);
+    ctx.strokeStyle = '#00ffff';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(bx+0.5, 40+0.5, 9, 9);
+  }
+  // status
+  let status = '';
+  let statusCol = '#00ffff';
+  if(state==='show') { status = '> TRANSMITTING...'; statusCol='#ffaa00'; }
+  else if(state==='input') { status = '> REPEAT SEQUENCE'; statusCol='#00ffff'; }
+  else if(state==='success') { status = '> SEGMENT LOCKED'; statusCol='#00ff41'; }
+  else if(state==='fail') { status = '> SIGNAL LOST...'; statusCol='#ff00ff'; }
+  pxText(status, W/2, 68, 10, statusCol, 'center');
+}
+
+function drawTimerBar(){
+  // amber timer bar — hard pixel snap, 2-frame flicker on tick
+  const barX = 32, barY = 96, barW = W-64, barH = 12;
+  // background
+  ctx.fillStyle = '#1a0055';
+  ctx.fillRect(barX, barY, barW, barH);
+  // magenta ghost outline
+  ctx.globalAlpha = 0.5;
+  ctx.fillStyle = '#ff00ff';
+  ctx.fillRect(barX+2, barY+2, barW, 2);
+  ctx.fillRect(barX+2, barY+barH-2+2, barW, 2);
+  ctx.globalAlpha = 1;
+  // outline cyan
+  ctx.fillStyle = '#00ffff';
+  ctx.fillRect(barX, barY, barW, 2);
+  ctx.fillRect(barX, barY+barH-2, barW, 2);
+  ctx.fillRect(barX, barY, 2, barH);
+  ctx.fillRect(barX+barW-2, barY, 2, barH);
+
+  // fill (amber), snap to 8px segments
+  const frac = state==='input' ? Math.max(0, timer/timerMax) : (state==='show' ? 1 : (state==='success'?1:0));
+  const fillW = Math.floor((barW-8) * frac / 4) * 4;
+  // 2-frame flicker: when timer crosses each integer second
+  const tickFlicker = state==='input' && (Math.floor(timer*4) !== Math.floor((timer+0.033)*4)) && (frameCount%2===0);
+  if(!tickFlicker){
+    ctx.fillStyle = '#ffaa00';
+    ctx.fillRect(barX+4, barY+4, fillW, barH-8);
+    // magenta ghost on bar fill
+    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = '#ff00ff';
+    ctx.fillRect(barX+6, barY+6, fillW, barH-8);
+    ctx.globalAlpha = 1;
+  }
+}
+
+function drawSequenceDisplay(){
+  // central display panel
+  const panelX = 32, panelY = 124, panelW = W-64, panelH = 88;
+  ctx.fillStyle = '#1a0055';
+  ctx.fillRect(panelX, panelY, panelW, panelH);
+  // border
+  ctx.fillStyle = '#00ffff';
+  ctx.fillRect(panelX, panelY, panelW, 2);
+  ctx.fillRect(panelX, panelY+panelH-2, panelW, 2);
+  ctx.fillRect(panelX, panelY, 2, panelH);
+  ctx.fillRect(panelX+panelW-2, panelY, 2, panelH);
+
+  if(state === 'show'){
+    if(phase === 'glyph' && showIdx < sequence.length){
+      const idx = sequence[showIdx];
+      // phosphor decay glow: alpha based on showTimer fraction
+      const t = showTimer / showDuration;
+      const alpha = t < 0.15 ? t/0.15 : (1 - (t-0.15)/0.85)*0.9 + 0.1;
+      const px = 4;
+      const gw = 8*px, gh = 8*px;
+      const gx = Math.round((W - gw)/2);
+      const gy = panelY + Math.round((panelH - gh)/2);
+      drawGlyphCRT(idx, gx, gy, px, alpha, alpha);
+      // progress dots
+      drawProgressDots(panelX+8, panelY+panelH-12, sequence.length, showIdx, 'show');
+    } else {
+      // gap
+      drawProgressDots(panelX+8, panelY+panelH-12, sequence.length, showIdx, 'show');
+    }
+  } else if(state === 'input' || state === 'success' || state === 'fail'){
+    // show progress as dots
+    pxText('INPUT', W/2, panelY+12, 10, '#ffaa00', 'center');
+    // draw dots for each glyph in sequence
+    const n = sequence.length;
+    const dotSize = 16;
+    const gap = 8;
+    const totalW = n*dotSize + (n-1)*gap;
+    const sx = Math.round((W - totalW)/2);
+    const sy = panelY + 40;
+    for(let i=0;i<n;i++){
+      const dx = sx + i*(dotSize+gap);
+      let col = '#1a0055';
+      let border = '#00ffff';
+      if(i < playerIdx){ col = '#00ff41'; border='#00ff41'; }
+      // magenta ghost
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = '#ff00ff';
+      ctx.fillRect(dx+2, sy+2, dotSize, dotSize);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = col;
+      ctx.fillRect(dx, sy, dotSize, dotSize);
+      ctx.fillStyle = border;
+      ctx.fillRect(dx, sy, dotSize, 2);
+      ctx.fillRect(dx, sy+dotSize-2, dotSize, 2);
+      ctx.fillRect(dx, sy, 2, dotSize);
+      ctx.fillRect(dx+dotSize-2, sy, 2, dotSize);
+    }
+  }
+}
+
+function drawProgressDots(x, y, total, current, mode){
+  for(let i=0;i<total;i++){
+    const dx = x + i*8;
+    ctx.fillStyle = i<=current ? '#00ffff' : '#330066';
+    ctx.fillRect(dx, y, 4, 4);
+  }
+}
+
+function drawGrid(){
+  if(state === 'show') {
+    // dim grid preview
+  }
+  const gx = 48, gy = 232;
+  const cellSize = 80;
+  const cellGap = 16;
+  for(let i=0;i<9;i++){
+    const cx = gx + (i%3)*(cellSize+cellGap);
+    const cy = gy + Math.floor(i/3)*(cellSize+cellGap);
+    // cell bg
+    ctx.fillStyle = '#1a0055';
+    ctx.fillRect(cx, cy, cellSize, cellSize);
+    // border (cyan)
+    const active = state === 'input';
+    ctx.fillStyle = active ? '#00ffff' : '#440088';
+    ctx.fillRect(cx, cy, cellSize, 2);
+    ctx.fillRect(cx, cy+cellSize-2, cellSize, 2);
+    ctx.fillRect(cx, cy, 2, cellSize);
+    ctx.fillRect(cx+cellSize-2, cy, 2, cellSize);
+    // magenta ghost border
+    ctx.globalAlpha = 0.4;
+    ctx.fillStyle = '#ff00ff';
+    ctx.fillRect(cx+2, cy+cellSize, cellSize, 2);
+    ctx.fillRect(cx+cellSize, cy+2, 2, cellSize);
+    ctx.globalAlpha = 1;
+    // glyph
+    if(gridGlyphs.length === 9){
+      const idx = gridGlyphs[i];
+      const px = 6;
+      const gw = 8*px;
+      const ggx = cx + (cellSize-gw)/2;
+      const ggy = cy + (cellSize-gw)/2;
+      const alpha = state === 'input' ? 1 : 0.35;
+      drawGlyphCRT(idx, ggx, ggy, px, alpha, alpha*0.8);
+    }
+  }
+}
+
+function renderPlay(){
+  clearBG();
+  drawHeader();
+  drawTimerBar();
+  drawSequenceDisplay();
+  drawGrid();
+
+  // flash overlays
+  if(wrongFlash>0){
+    ctx.globalAlpha = (wrongFlash/30)*0.35;
+    ctx.fillStyle = '#ff00ff';
+    ctx.fillRect(0,0,W,H);
+    ctx.globalAlpha = 1;
+  }
+  if(successFlash>0){
+    ctx.globalAlpha = (successFlash/20)*0.25;
+    ctx.fillStyle = '#00ff41';
+    ctx.fillRect(0,0,W,H);
+    ctx.globalAlpha = 1;
+  }
+  if(flicker>0 && flicker%2===0){
+    ctx.globalAlpha = 0.1;
+    ctx.fillStyle = '#00ffff';
+    ctx.fillRect(0,0,W,H);
+    ctx.globalAlpha = 1;
+  }
+
+  drawFrame();
+  drawScanlines();
+}
+
+function renderWin(){
+  clearBG();
+  pxTextGhosted('SIGNAL', W/2, 120, 28, 'center');
+  // override cyan to green for win
+  ctx.fillStyle = '#00ff41';
+  ctx.textAlign='center'; ctx.textBaseline='top';
+  ctx.font = '28px "Press Start 2P", monospace';
+  // ghost
+  ctx.globalAlpha=0.7; ctx.fillStyle='#ff00ff';
+  ctx.fillText('SIGNAL', W/2+2, 122);
+  ctx.fillText('RESTORED', W/2+2, 162);
+  ctx.globalAlpha=1;
+  ctx.fillStyle='#00ff41';
+  ctx.fillText('SIGNAL', W/2, 120);
+  ctx.fillText('RESTORED', W/2, 160);
+
+  pxText('// transmission complete', W/2, 220, 10, '#00ff41', 'center');
+  pxText('12 / 12 SEGMENTS', W/2, 260, 12, '#00ffff', 'center');
+  // some celebratory glyphs
+  for(let i=0;i<5;i++){
+    const x = W/2 - 100 + i*50;
+    if((frameCount+i*10)%40 < 36){
+      drawGlyphCRT(i*3 % 16, x-12, 300, 3);
+    }
+  }
+  const blink = Math.floor(frameCount/30)%2===0;
+  if(blink) pxText('[ TAP / ENTER TO REPLAY ]', W/2, 412, 10, '#ffaa00', 'center');
+  drawFrame();
+  drawScanlines();
+}
+
+function renderLose(){
+  // decay animation: indigo darkens, particles fall
+  clearBG();
+  // darken overlay proportional to decay
+  ctx.globalAlpha = decayProgress*0.6;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0,0,W,H);
+  ctx.globalAlpha = 1;
+
+  // particles
+  for(const p of particles){
+    ctx.fillStyle = p.c;
+    ctx.globalAlpha = Math.min(1, p.life);
+    ctx.fillRect(Math.round(p.x), Math.round(p.y), 2, 2);
+  }
+  ctx.globalAlpha = 1;
+
+  if(decayProgress < 0.7){
+    pxTextGhosted('TERMINAL', W/2, 140, 24, 'center');
+    pxTextGhosted('FAILURE', W/2, 180, 24, 'center');
+    pxText('// signal lost to static', W/2, 240, 10, '#ff00ff', 'center');
+    pxText('ROUND '+round+' / 12', W/2, 280, 12, '#ffaa00', 'center');
+  } else {
+    // fully decayed
+    pxText('...', W/2, 240, 16, '#440088', 'center');
+  }
+
+  if(decayProgress > 0.8){
+    const blink = Math.floor(frameCount/30)%2===0;
+    if(blink) pxText('[ TAP / ENTER TO RETRY ]', W/2, 412, 10, '#ffaa00', 'center');
+  }
+
+  drawFrame();
+  drawScanlines();
+}
+
+function render(){
+  if(state === 'title') renderTitle();
+  else if(state === 'win') renderWin();
+  else if(state === 'lose') renderLose();
+  else renderPlay();
+}
+
+function frame(now){
+  const dt = Math.min(0.05, (now - lastTime)/1000);
+  lastTime = now;
+  checkStateChange();
+  update(dt);
+  render();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+// prevent context menu / scroll
+addEventListener('contextmenu', e=>e.preventDefault());
+document.addEventListener('touchmove', e=>e.preventDefault(), {passive:false});
+
+})();
+</script>
+</body>
+</html>

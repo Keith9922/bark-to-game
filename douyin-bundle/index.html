@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="theme-color" content="#000000" />
-  <title>bark_to_game · 模仿狗叫生成游戏</title>
+  <title>bark_to_game · AI 听完狗叫做的 8 个互动小作品</title>
   <style>
     :root {
       --bg: #000;
@@ -14,8 +14,8 @@
       --amber-dim: rgba(255, 177, 59, 0.3);
       --amber-faint: rgba(255, 177, 59, 0.12);
       --signal: #5dff8f;
-      --warn: #f5d76e;
-      --warn-bg: rgba(245, 215, 110, 0.08);
+      --note: #f5d76e;
+      --note-bg: rgba(245, 215, 110, 0.08);
     }
 
     * { box-sizing: border-box; }
@@ -34,7 +34,7 @@
       padding: 32px 20px 80px;
     }
 
-    header { margin-bottom: 32px; }
+    header { margin-bottom: 28px; }
 
     .status-row {
       display: flex;
@@ -76,15 +76,40 @@
     }
 
     .notice {
-      border: 1px solid var(--warn);
-      background: var(--warn-bg);
+      border: 1px solid var(--note);
+      background: var(--note-bg);
       padding: 16px 18px;
-      margin: 24px 0 32px;
+      margin: 24px 0 28px;
       font-size: 13px;
-      color: var(--warn);
-      line-height: 1.6;
+      color: var(--note);
+      line-height: 1.65;
     }
     .notice strong { display: block; margin-bottom: 6px; font-size: 14px; }
+
+    .flow-card {
+      border: 1px solid var(--amber-dim);
+      padding: 16px 18px;
+      margin: 0 0 28px;
+      font-size: 13px;
+      line-height: 1.7;
+    }
+    .flow-card .flow-title {
+      font-size: 10px;
+      letter-spacing: 0.2em;
+      color: var(--amber-soft);
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+    .flow-row { margin: 6px 0; }
+    .flow-row .ico { color: var(--signal); margin-right: 8px; }
+    .flow-row .tag {
+      display: inline-block;
+      padding: 1px 6px;
+      margin: 0 4px 2px 0;
+      border: 1px solid var(--amber-dim);
+      font-size: 11px;
+      color: var(--amber);
+    }
 
     .section-label {
       font-size: 10px;
@@ -94,16 +119,16 @@
       margin: 32px 0 14px;
     }
 
-    .games {
+    .list {
       display: grid;
       gap: 14px;
       grid-template-columns: 1fr;
     }
     @media (min-width: 640px) {
-      .games { grid-template-columns: 1fr 1fr; }
+      .list { grid-template-columns: 1fr 1fr; }
     }
 
-    .game-card {
+    .work-card {
       display: block;
       width: 100%;
       text-align: left;
@@ -114,32 +139,33 @@
       font-family: inherit;
       cursor: pointer;
       transition: background 0.15s, border-color 0.15s;
+      -webkit-tap-highlight-color: transparent;
     }
-    .game-card:hover, .game-card:focus-visible {
+    .work-card:hover, .work-card:focus-visible {
       background: var(--amber-faint);
       border-color: var(--amber-soft);
       outline: none;
     }
-    .game-card .meta {
+    .work-card .meta {
       font-size: 10px;
       letter-spacing: 0.15em;
       color: var(--amber-soft);
       margin-bottom: 6px;
       text-transform: uppercase;
     }
-    .game-card .title {
+    .work-card .title {
       font-size: 18px;
       font-weight: 700;
       color: var(--amber);
       margin-bottom: 8px;
       letter-spacing: -0.01em;
     }
-    .game-card .blurb {
+    .work-card .blurb {
       font-size: 12px;
       color: var(--amber-soft);
       line-height: 1.55;
     }
-    .game-card .cta {
+    .work-card .cta {
       margin-top: 12px;
       font-size: 11px;
       color: var(--signal);
@@ -156,8 +182,8 @@
     }
     footer p { margin: 4px 0; }
 
-    /* full-screen game player */
-    .player {
+    /* full-screen viewer */
+    .viewer {
       position: fixed;
       inset: 0;
       background: var(--bg);
@@ -165,8 +191,8 @@
       display: none;
       flex-direction: column;
     }
-    .player.open { display: flex; }
-    .player-bar {
+    .viewer.open { display: flex; }
+    .viewer-bar {
       flex: 0 0 auto;
       display: flex;
       align-items: center;
@@ -174,10 +200,9 @@
       padding: 10px 14px;
       border-bottom: 1px solid var(--amber-faint);
       background: var(--bg);
-      /* keep clear of iOS notch / dynamic island */
       padding-top: max(10px, env(safe-area-inset-top));
     }
-    .player-bar .title {
+    .viewer-bar .title {
       font-size: 12px;
       color: var(--amber-soft);
       letter-spacing: 0.1em;
@@ -187,7 +212,7 @@
       flex: 1;
       margin-right: 12px;
     }
-    .player-bar button {
+    .viewer-bar button {
       background: transparent;
       border: 1px solid var(--amber-dim);
       color: var(--amber);
@@ -195,9 +220,10 @@
       font-size: 12px;
       padding: 6px 12px;
       cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
     }
-    .player-bar button:hover { background: var(--amber-faint); }
-    .player iframe {
+    .viewer-bar button:hover { background: var(--amber-faint); }
+    .viewer iframe {
       flex: 1 1 auto;
       width: 100%;
       border: 0;
@@ -210,98 +236,142 @@
     <header>
       <div class="status-row">
         <span class="status-dot" aria-hidden="true"></span>
-        <span>状态：DEMO MODE</span>
+        <span>状态：作品已就绪</span>
       </div>
       <h1>bark<span class="accent">_</span>to<span class="accent">_</span>game</h1>
       <p class="tagline">
-        对着话筒<strong>模仿狗叫</strong>，让 AI 帮你做一个可玩的小游戏。
+        对着话筒<strong>模仿一声狗叫</strong>，AI 听完会做出一个互动小作品。
       </p>
       <p class="subtle">
-        完整流程：录音 → 提取声学特征（librosa + YAMNet）→ Claude 翻译成游戏概念 → Claude Code 写出可玩的 HTML5 游戏。
+        本作品集中收录了 AI 听完不同"汪"「嗷呜」「嗯哼」之后产出的 8 个独立小作品 —
+        每一个都是从一声狗叫的声学特征出发，被翻译成「艺术风格 × 玩法机制 × 情绪氛围」的三元组，再写成一份单文件交互。
       </p>
     </header>
 
-    <section class="notice" role="note">
-      <strong>⚠️ 抖音内测演示版</strong>
-      实时的"录音 → 生成"链路依赖后端推理服务，目前在抖音互动空间内 <strong>暂未接入</strong>。
-      你现在能玩到的是 AI 之前给出的三个已生成游戏，每个都是一个独立的 HTML5 小游戏。
+    <section class="flow-card" aria-label="creation pipeline">
+      <div class="flow-title">· 一声狗叫 → 一个互动小作品 ·</div>
+      <div class="flow-row"><span class="ico">①</span>录音：人类对着话筒模仿狗叫</div>
+      <div class="flow-row"><span class="ico">②</span>解读：声学模型把这一声标注为
+        <span class="tag">BARK</span><span class="tag">HOWL</span><span class="tag">YIP</span><span class="tag">GROWL</span><span class="tag">WHIMPER</span>
+      </div>
+      <div class="flow-row"><span class="ico">③</span>翻译：AI 把 token 序列翻译成一个具体的互动概念（艺术 × 机制 × 情绪）</div>
+      <div class="flow-row"><span class="ico">④</span>创作：另一位 AI 据此写成一份单文件互动作品</div>
+      <div class="flow-row" style="margin-top:10px;color:var(--amber-soft);font-size:12px">
+        下方 8 个，正是这个流程跑了 8 次的产物。每一个都对应一种不同的狗叫节奏与情绪。
+      </div>
     </section>
 
-    <div class="section-label">· 已生成的游戏 / DEMO GAMES ·</div>
-    <div class="games" id="games"></div>
+    <section class="notice" role="note">
+      <strong>✨ 体验说明</strong>
+      实时的「录音 → 解读 → 创作」整条链路依赖云端推理服务，在本互动空间版本中暂未开放。
+      下方 8 个互动小作品都是 AI 已经完成的产物，每一个都是独立运行的单文件交互，可直接点开体验。
+    </section>
+
+    <div class="section-label">· AI 创作的 8 个互动小作品 ·</div>
+    <div class="list" id="list"></div>
 
     <footer>
-      <p>bark-to-game · 模仿狗叫生成游戏</p>
-      <p>每个 demo 都是真实的 AI 生成产物：人类模仿狗叫 → 声学 token → Claude 概念 → Claude Code 直出单文件游戏。</p>
+      <p>bark_to_game · 模仿一声狗叫，AI 给你一段小创作</p>
+      <p>每一份作品都是 AI 现场写成的单文件交互，可在桌面与手机端体验。</p>
     </footer>
   </main>
 
-  <div class="player" id="player" role="dialog" aria-modal="true" aria-label="游戏窗口">
-    <div class="player-bar">
-      <span class="title" id="player-title">游戏</span>
-      <button type="button" id="player-close" aria-label="关闭游戏">✕ 关闭</button>
+  <div class="viewer" id="viewer" role="dialog" aria-modal="true" aria-label="作品查看器">
+    <div class="viewer-bar">
+      <span class="title" id="viewer-title">作品</span>
+      <button type="button" id="viewer-close" aria-label="关闭">✕ 关闭</button>
     </div>
-    <iframe id="player-frame" title="game" allow="autoplay; gamepad; fullscreen"></iframe>
+    <iframe id="viewer-frame" title="work" allow="autoplay; gamepad; fullscreen"></iframe>
   </div>
 
   <script>
-    const GAMES = [
+    const WORKS = [
       {
         title: 'BARK SCRAMBLER 9000',
         meta: '记忆 · 立体派 · Y2K 故障',
         blurb: '看立体派狗叫面板按顺序闪烁，照样点回去。连续点错两次或撑过 5 轮即结束。',
-        src: 'games/bark-scrambler-9000.html',
+        src: 'works/bark-scrambler-9000.html',
+      },
+      {
+        title: 'SIGNAL DECAY',
+        meta: '记忆 · 像素 CRT · 风险印刷',
+        blurb: '看青蓝字符在终端里闪过的序列，照样点回去。每一轮终端干扰更强。',
+        src: 'works/signal-decay.html',
       },
       {
         title: 'CONCRETE VERDICT',
-        meta: '分类 · 极简瑞士风',
+        meta: '分拣 · 极简瑞士 · 直立排版',
         blurb: '物体从顶部落下：BARK 推到左 / QUIET 推到右。正确分拣 12 个胜出，错 3 次墙体崩裂。',
-        src: 'games/concrete-verdict.html',
+        src: 'works/concrete-verdict.html',
       },
       {
         title: 'SCHEMATICS RAIN DOWN',
-        meta: '接物 · 蓝图施工',
-        blurb: '推着绘图桌左右移动，接住下落的蓝图卷轴照亮 6 个工地，连续漏 3 张则被打上 VOID 印章。',
-        src: 'games/schematics-rain-down.html',
+        meta: '接物 · 蓝图施工 · 工程线',
+        blurb: '推着绘图桌左右移动，接住下落的蓝图卷轴照亮 6 个工地，连续漏 3 张即被打上 VOID 印章。',
+        src: 'works/schematics-rain-down.html',
+      },
+      {
+        title: 'PLUMB',
+        meta: '平衡 · 瑞士立体 · 静默',
+        blurb: '左右移动让吊坠保持垂直，太久不矫正就会偏离。瑞士立体派配色，极简专注。',
+        src: 'works/plumb.html',
+      },
+      {
+        title: 'FALLING FREQUENCY',
+        meta: '描摹 · 手绘暖铅 · 忧郁',
+        blurb: '按住屏幕沿暖琥珀色的频谱线条描摹，越接近完美越多分。手绘铅笔质感。',
+        src: 'works/falling-frequency.html',
+      },
+      {
+        title: 'TUMBLECROFT FAIR',
+        meta: '堆叠 · 等距立体派 · 集市',
+        blurb: '在乳脂、绿苔、玫瑰三色的集市里把方块对齐叠起来，叠歪了就翻车。',
+        src: 'works/tumblecroft-fair.html',
+      },
+      {
+        title: 'RIBBON PARADE',
+        meta: '牵引 · 速写 + 印刷 · 雀跃',
+        blurb: '在天上画弧线把游行队伍引向终点，太散就走丢，太密就拥堵。',
+        src: 'works/ribbon-parade.html',
       },
     ];
 
-    const grid = document.getElementById('games');
-    const player = document.getElementById('player');
-    const playerFrame = document.getElementById('player-frame');
-    const playerTitle = document.getElementById('player-title');
-    const playerClose = document.getElementById('player-close');
+    const grid = document.getElementById('list');
+    const viewer = document.getElementById('viewer');
+    const viewerFrame = document.getElementById('viewer-frame');
+    const viewerTitle = document.getElementById('viewer-title');
+    const viewerClose = document.getElementById('viewer-close');
 
-    function openGame(game) {
-      playerTitle.textContent = game.title;
-      playerFrame.src = game.src;
-      player.classList.add('open');
+    function openWork(work) {
+      viewerTitle.textContent = work.title;
+      viewerFrame.src = work.src;
+      viewer.classList.add('open');
       document.body.style.overflow = 'hidden';
     }
 
-    function closeGame() {
-      player.classList.remove('open');
-      playerFrame.src = 'about:blank';
+    function closeWork() {
+      viewer.classList.remove('open');
+      viewerFrame.src = 'about:blank';
       document.body.style.overflow = '';
     }
 
-    GAMES.forEach((game) => {
+    WORKS.forEach((work) => {
       const card = document.createElement('button');
       card.type = 'button';
-      card.className = 'game-card';
+      card.className = 'work-card';
       card.innerHTML = `
-        <div class="meta">${game.meta}</div>
-        <div class="title">${game.title}</div>
-        <div class="blurb">${game.blurb}</div>
-        <div class="cta">▶ 开始游玩</div>
+        <div class="meta">${work.meta}</div>
+        <div class="title">${work.title}</div>
+        <div class="blurb">${work.blurb}</div>
+        <div class="cta">▶ 开始体验</div>
       `;
-      card.addEventListener('click', () => openGame(game));
+      card.addEventListener('click', () => openWork(work));
       grid.appendChild(card);
     });
 
-    playerClose.addEventListener('click', closeGame);
+    viewerClose.addEventListener('click', closeWork);
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && player.classList.contains('open')) closeGame();
+      if (e.key === 'Escape' && viewer.classList.contains('open')) closeWork();
     });
   </script>
 </body>
