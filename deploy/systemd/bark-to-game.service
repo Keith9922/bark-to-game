@@ -1,0 +1,23 @@
+[Unit]
+Description=bark-to-game FastAPI backend
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/bark-to-game/backend
+EnvironmentFile=/opt/bark-to-game/backend/.env
+# Bind only to loopback — nginx reverse-proxies /api/* from port 80.
+# `uv run` resolves the project's pinned Python (3.13) and venv, so we
+# don't need a system-wide Python 3.13 install.
+ExecStart=/root/.local/bin/uv run fastapi run bark_to_game/main.py --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=5
+# TF + librosa cold-load can take ~30 s on a 2-core VM the first time.
+# Don't OOM kill us before YAMNet's done loading.
+TimeoutStartSec=120
+# loguru goes to stdout/stderr; let journald capture it.
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
