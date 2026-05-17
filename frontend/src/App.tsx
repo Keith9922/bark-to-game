@@ -17,6 +17,7 @@ import {
   type JobView,
   type TranslateResponse,
 } from './lib/api'
+import { phaseFromAnalyzeResponse } from './lib/analyzePhase'
 import { useCurrentSessionId } from './lib/useSession'
 
 type Phase =
@@ -137,16 +138,9 @@ function App() {
       return
     }
 
-    if (tokens.detection === 'silent' || tokens.tokens.length === 0) {
-      setPhase({ kind: 'no_sound' })
-      return
-    }
-    if (tokens.detection === 'not_a_bark') {
-      setPhase({
-        kind: 'not_a_bark',
-        detectedClass: tokens.detected_class,
-        rejectedCount: tokens.rejected_segment_count,
-      })
+    const earlyPhase = phaseFromAnalyzeResponse(tokens)
+    if (earlyPhase) {
+      setPhase(earlyPhase)
       return
     }
 
