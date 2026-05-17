@@ -7,7 +7,13 @@
  * backend then resamples to 16 kHz as needed.
  */
 
-const BACKEND_URL = 'http://localhost:8000'
+// Where to send API calls. Dev defaults to the local backend; on the
+// deployed host we leave it empty so fetch('/api/...') is relative and
+// nginx (which serves the static bundle on the same origin) reverse-proxies
+// to the backend on 127.0.0.1:8000.
+//   VITE_BACKEND_URL=                 -> relative ('' is the default)
+//   VITE_BACKEND_URL=http://...        -> override (cross-origin dev)
+const BACKEND_URL: string = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:8000'
 
 export interface TokenSegment {
   start_ms: number
