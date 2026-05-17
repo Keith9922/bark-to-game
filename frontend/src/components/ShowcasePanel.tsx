@@ -27,11 +27,21 @@ function extractBlurb(summary: string): string {
   return after.split('\n')[0].trim()
 }
 
-export default function ShowcasePanel() {
+interface Props {
+  /**
+   * If set, render only the first N items by default and show a "查看全部"
+   * button that expands the rest. Useful when the panel is mounted inside
+   * a Shelf and we don't want to dump 18 cards on the page at once.
+   */
+  previewLimit?: number
+}
+
+export default function ShowcasePanel({ previewLimit }: Props = {}) {
   const [items, setItems] = useState<ShowcaseItem[]>([])
   const [error, setError] = useState<string | null>(null)
   const [open, setOpen] = useState<ShowcaseItem | null>(null)
   const [loading, setLoading] = useState(true)
+  const [expanded, setExpanded] = useState(false)
 
   useEffect(() => {
     fetchShowcase()
@@ -55,44 +65,41 @@ export default function ShowcasePanel() {
   }, [open])
 
   if (loading) {
-    return (
-      <section className="border border-amber-crt/20 bg-amber-crt/[0.02] p-5">
-        <p className="text-xs text-amber-crt/40 font-mono">加载历史作品…</p>
-      </section>
-    )
+    return <p className="text-xs text-amber-crt/40 font-mono">加载作品中…</p>
   }
 
   if (error) {
     return (
-      <section className="border border-amber-crt/20 bg-amber-crt/[0.02] p-5">
-        <p className="text-xs text-amber-crt/40 font-mono">
-          作品索引暂不可用（{error}）
-        </p>
-      </section>
+      <p className="text-xs text-amber-crt/40 font-mono">
+        作品索引暂不可用（{error}）
+      </p>
     )
   }
 
   if (items.length === 0) {
-    return null
+    return (
+      <p className="text-xs text-amber-crt/40 font-mono">
+        还没有作品 — 录一声狗叫，AI 就给你做一个。
+      </p>
+    )
   }
+
+  // When previewLimit is set, only show the first N items until the user
+  // explicitly asks for more.
+  const visible = previewLimit && !expanded ? items.slice(0, previewLimit) : items
+  const hiddenCount = items.length - visible.length
 
   return (
     <>
-      <section
-        aria-label="历史作品集"
-        className="border border-amber-crt/30 bg-amber-crt/[0.02] p-4 sm:p-5 space-y-4"
-      >
-        <header className="space-y-1">
-          <h2 className="font-display text-xl text-amber-crt">
-            🎨 作品集 · {items.length} 个 AI 创作
-          </h2>
-          <p className="text-xs text-amber-crt/60 leading-relaxed">
-            过去每一声狗叫都被 AI 翻译成了一个互动小作品。点开看看是什么样。
-          </p>
-        </header>
+      <div className="space-y-3">
+        <p className="text-xs text-amber-crt/60 leading-relaxed">
+          过去每一声狗叫都被 AI 翻译成了一个互动小作品。共
+          <span className="text-signal mx-1">{items.length}</span>
+          个，点开看看是什么样。
+        </p>
 
         <div className="grid gap-3 sm:grid-cols-2">
-          {items.map((item) => {
+          {visible.map((item) => {
             const title = extractTitle(item.summary, item.game_id)
             const blurb = extractBlurb(item.summary)
             return (
@@ -101,6 +108,7 @@ export default function ShowcasePanel() {
                 type="button"
                 onClick={() => setOpen(item)}
                 className="text-left border border-amber-crt/20 hover:border-amber-crt/60 hover:bg-amber-crt/5 p-3 transition-colors group"
+                style={{ WebkitTapHighlightColor: 'transparent' }}
               >
                 <div className="font-display text-base text-signal group-hover:text-amber-crt truncate">
                   {title}
@@ -115,7 +123,20 @@ export default function ShowcasePanel() {
             )
           })}
         </div>
-      </section>
+
+        {hiddenCount > 0 && (
+          <div className="pt-1 text-center">
+            <button
+              type="button"
+              onClick={() => setExpanded(true)}
+              className="text-xs text-amber-crt/70 hover:text-signal font-mono border border-amber-crt/30 hover:border-signal px-4 py-1.5 transition-colors"
+              style={{ WebkitTapHighlightColor: 'transparent' }}
+            >
+              查看全部 {items.length} 个作品 · See all ({hiddenCount} more)
+            </button>
+          </div>
+        )}
+      </div>
 
       {open && (
         <div
