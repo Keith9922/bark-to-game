@@ -5,8 +5,8 @@ import GameFrame, { type PlayableGame } from './components/GameFrame'
 import ProgressBar from './components/ProgressBar'
 import Recorder from './components/Recorder'
 import SessionSwitcher from './components/SessionSwitcher'
-import Shelf from './components/Shelf'
 import TokenList from './components/TokenList'
+import WorksGrid from './components/WorksGrid'
 import {
   cancelJob,
   pollJobUntilDone,
@@ -18,7 +18,9 @@ import {
   type TranslateResponse,
 } from './lib/api'
 import { phaseFromAnalyzeResponse } from './lib/analyzePhase'
+import { linkProps, usePath } from './lib/router'
 import { useCurrentSessionId } from './lib/useSession'
+import WorksPage from './WorksPage'
 
 type Phase =
   | { kind: 'idle' }
@@ -102,9 +104,17 @@ function conceptFromPhase(phase: Phase): TranslateResponse | undefined {
 }
 
 function App() {
+  // Tiny path-based router: '/' renders MainApp, '/works' renders WorksPage.
+  // Anything else also falls through to MainApp (nginx already maps unknown
+  // paths to index.html, so this catches typos gracefully).
+  const path = usePath()
+  if (path === '/works') return <WorksPage />
+  return <MainApp />
+}
+
+function MainApp() {
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
   const [sessionId] = useCurrentSessionId()
-  const [historyRefreshKey, setHistoryRefreshKey] = useState(0)
   const generationCancelledRef = useRef(false)
 
   // Tick the client-side elapsed counter for analyze + translate phases.
@@ -210,7 +220,6 @@ function App() {
             play_url: final.play_url,
           },
         })
-        setHistoryRefreshKey((k) => k + 1)
       } else if (final.status === 'cancelled') {
         reset()
       } else {
@@ -260,7 +269,16 @@ function App() {
               />
               <span>{statusLine(phase)}</span>
             </div>
-            <SessionSwitcher disabled={recorderDisabled} onSessionChange={reset} />
+            <div className="flex items-center gap-3">
+              <a
+                {...linkProps('/works')}
+                className="text-xs text-amber-crt/70 hover:text-signal border border-amber-crt/30 hover:border-signal px-3 py-1.5 transition-colors"
+                style={{ WebkitTapHighlightColor: 'transparent' }}
+              >
+                📚 作品集
+              </a>
+              <SessionSwitcher disabled={recorderDisabled} onSessionChange={reset} />
+            </div>
           </div>
 
           <h1 className="font-display text-5xl sm:text-6xl md:text-7xl leading-none tracking-tight text-amber-crt">
@@ -370,14 +388,28 @@ function App() {
 
         {phase.kind === 'playable' && <GameFrame game={phase.game} onRestart={reset} />}
 
-        {/* Bottom shelf: tabbed Showcase / History. Only when the user is in
-            an idle-ish state — once a recording / generation is in flight, the
-            shelf gets out of the way so the current task owns the page. */}
+        {/* Preview of the works archive — a teaser strip that lives on the
+            home page while the user is idle. The full /works route shows the
+            same grid with no limit. Hidden during recording / generation so
+            the active task owns the page. The grid refreshes naturally on
+            remount (every return to idle/error). */}
         {(phase.kind === 'idle' ||
           phase.kind === 'no_sound' ||
           phase.kind === 'not_a_bark' ||
           phase.kind === 'error') && (
-          <Shelf sessionId={sessionId} refreshKey={historyRefreshKey} />
+          <section aria-label="作品预览" className="space-y-3">
+            <div className="flex items-baseline justify-between">
+              <h2 className="font-display text-lg sm:text-xl text-amber-crt">📚 作品集预览</h2>
+              <a
+                {...linkProps('/works')}
+                className="text-[11px] text-amber-crt/60 hover:text-signal font-mono"
+                style={{ WebkitTapHighlightColor: 'transparent' }}
+              >
+                完整作品集 →
+              </a>
+            </div>
+            <WorksGrid previewLimit={6} showAllLink />
+          </section>
         )}
 
         {phase.kind === 'error' && (

@@ -344,25 +344,104 @@ async def play_game(game_id: str) -> FileResponse:
 
 @router.get("/showcase/all")
 async def showcase_all() -> dict[str, list[dict[str, object]]]:
-    """List every playable game.html under generated-games/ for the showcase
-    page. Pure filesystem scan — no DB. Each entry has just enough metadata
-    for a card: id, summary, play_url, when it was created."""
-    out: list[dict[str, object]] = []
-    if not GENERATED_GAMES_DIR.exists():
-        return {"items": out}
-    for child in sorted(GENERATED_GAMES_DIR.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
-        game_path = child / "game.html"
-        if not game_path.exists():
-            continue
-        summary_path = child / "SUMMARY.md"
-        summary = summary_path.read_text(encoding="utf-8").strip() if summary_path.exists() else ""
-        out.append(
-            {
+    """Unified works catalogue powering the frontend's WorksGrid + /works page.
+
+    Source of truth is the per-session history index (``data/history/*.json``)
+    because those entries carry the full metadata a card needs: title +
+    tagline + art × mechanic × mood × visual_recipe + audio_hash. We then
+    scan ``generated-games/*/game.html`` and append any orphan that has no
+    history entry (early demos, manual smoke tests) with a summary fallback
+    parsed from SUMMARY.md.
+
+    Each entry returns:
+      - game_id
+      - title, tagline, art, mechanic, mood, visual_recipe (None for orphans)
+      - audio_url: relative URL if the original .wav still exists, else None
+      - play_url
+      - created_at (unix seconds, history time when available, otherwise
+                    file mtime — sorted newest-first by this)
+      - has_history (whether the entry came from the index or filesystem)
+    """
+    import json
+
+    from bark_to_game import paths
+
+    items_by_id: dict[str, dict[str, object]] = {}
+
+    # Pass 1: history index. Every session file is a list of HistoryEntry dicts.
+    if paths.HISTORY_DIR.exists():
+        for history_file in paths.HISTORY_DIR.glob("*.json"):
+            try:
+                entries = json.loads(history_file.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            for entry in entries:
+                game_id = entry.get("game_id")
+                if not game_id:
+                    continue
+                audio_hash = entry.get("audio_hash") or None
+                audio_url = None
+                if audio_hash and (paths.AUDIO_DIR / f"{audio_hash}.wav").exists():
+                    audio_url = f"/api/audio/{audio_hash}/play"
+                items_by_id[game_id] = {
+                    "game_id": game_id,
+                    "title": entry.get("title") or "",
+                    "tagline": entry.get("tagline") or "",
+                    "art": entry.get("art") or "",
+                    "mechanic": entry.get("mechanic") or "",
+                    "mood": entry.get("mood") or "",
+                    "visual_recipe": entry.get("visual_recipe") or "",
+                    "audio_url": audio_url,
+                    "play_url": f"/api/game/{game_id}/play",
+                    "created_at": float(entry.get("created_at") or 0.0),
+                    "has_history": True,
+                }
+
+    # Pass 2: filesystem orphans — games that exist on disk but never made it
+    # into the history index. Use SUMMARY.md as a best-effort title source.
+    if GENERATED_GAMES_DIR.exists():
+        for child in GENERATED_GAMES_DIR.iterdir():
+            if not child.is_dir() or child.name in items_by_id:
+                continue
+            game_path = child / "game.html"
+            if not game_path.exists():
+                continue
+            summary_path = child / "SUMMARY.md"
+            summary = summary_path.read_text(encoding="utf-8").strip() if summary_path.exists() else ""
+            # Pull a title out of the SUMMARY.md. Accept both the plain
+            # ``TITLE — blurb`` shape and the bold ``**TITLE** — blurb``
+            # shape; markdown ``# Title`` headers are also tolerated.
+            title = ""
+            tagline = ""
+            if summary:
+                first_line = summary.split("\n", 1)[0].strip().lstrip("#").strip()
+                separator = "—" if "—" in first_line else ("-" if "-" in first_line else None)
+                if separator:
+                    head, tail = first_line.split(separator, 1)
+                    title = head.strip().strip("*").strip()
+                    tagline = tail.strip().strip("*").strip()
+                else:
+                    title = first_line.strip("*").strip()
+            items_by_id[child.name] = {
                 "game_id": child.name,
-                "summary": summary,
+                "title": title or f"作品 {child.name[:8]}",
+                "tagline": tagline,
+                "art": "",
+                "mechanic": "",
+                "mood": "",
+                "visual_recipe": "",
+                "audio_url": None,
                 "play_url": f"/api/game/{child.name}/play",
                 "created_at": game_path.stat().st_mtime,
-                "size_bytes": game_path.stat().st_size,
+                "has_history": False,
             }
-        )
-    return {"items": out}
+
+    # Skip any history entry whose game.html no longer exists on disk
+    # (e.g. cancelled jobs that still left a row). The frontend's
+    # ▶ button would 404 on those, which is worse than hiding them.
+    items = [
+        it for it in items_by_id.values()
+        if (GENERATED_GAMES_DIR / str(it["game_id"]) / "game.html").exists()
+    ]
+    items.sort(key=lambda it: it["created_at"], reverse=True)
+    return {"items": items}
