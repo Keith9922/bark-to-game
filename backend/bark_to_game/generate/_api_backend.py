@@ -56,11 +56,34 @@ self-contained HTML file. Non-negotiable constraints:
 3. Canvas 2D only (no WebGL, no SVG).
 4. Web Audio API for sound — synthesise, no audio files.
 5. Input: WASD/arrow keys + click/touch. Must work on mobile (touch + responsive).
-6. Implement: title screen → gameplay → win/lose state → restart on click/tap/Enter.
+6. Implement: title screen → bilingual rules overlay → gameplay → win/lose state
+   → restart on click/tap/Enter.
 7. Follow the VISUAL RECIPE in the spec literally: palette hex codes,
    typography, motion vocabulary, audio cues, DO-NOTs. Do not deviate.
 8. Adapt PLAYBOOK patterns — do not paste verbatim if they clash with the recipe.
-9. Playable round must complete in ~30 s and be clearly winnable / losable.
+9. Playable round must complete in ~30-60 s and be clearly winnable / losable.
+
+10. **Bilingual in-game rules screen (REQUIRED, on the title or first-open):**
+    - Heading: a short title line (English + 中文).
+    - Three sections, EACH with both 中文 and English copy stacked:
+        · GOAL / 目標 — how to win, in one sentence
+        · CONTROLS / 操作 — exact buttons / keys / taps / swipes for desktop AND mobile
+        · RULES / 玩法 — scoring, penalties, special events, time limits — 2-4 bullets
+    - The Chinese half MAY use Traditional Chinese (繁體) selectively for
+      headings or single-word labels to fit the visual style. Body copy
+      can be Simplified — pick whichever flows better with the recipe.
+    - English half is the primary fallback: must be clear and complete
+      even to a reader who skips the Chinese.
+    - Dismiss the rules with the same tap/click/Enter that starts play.
+
+11. **Replayability juice (REQUIRED):**
+    - Difficulty ramps within a single round — at least one visible
+      escalation moment (speed-up, denser hazards, new pattern, etc).
+    - On every meaningful event (score, miss, win, fail), trigger a quick
+      visual + audio cue (screen flash / shake / particle / chord).
+    - The fail screen invites the user back: include both a 中文 prompt
+      ("再來一次 / 再来一次") AND an English one ("Tap to replay") so the
+      retry CTA is unambiguous on any device.
 
 Output format — exactly two fenced blocks, nothing else:
 

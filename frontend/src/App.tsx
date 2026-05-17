@@ -2,11 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import ConceptCard from './components/ConceptCard'
 import EventStream from './components/EventStream'
 import GameFrame, { type PlayableGame } from './components/GameFrame'
-import HistoryPanel from './components/HistoryPanel'
 import ProgressBar from './components/ProgressBar'
 import Recorder from './components/Recorder'
 import SessionSwitcher from './components/SessionSwitcher'
-import ShowcasePanel from './components/ShowcasePanel'
+import Shelf from './components/Shelf'
 import TokenList from './components/TokenList'
 import {
   cancelJob,
@@ -371,9 +370,15 @@ function App() {
 
         {phase.kind === 'playable' && <GameFrame game={phase.game} onRestart={reset} />}
 
-        <HistoryPanel sessionId={sessionId} refreshKey={historyRefreshKey} />
-
-        <ShowcasePanel />
+        {/* Bottom shelf: tabbed Showcase / History. Only when the user is in
+            an idle-ish state — once a recording / generation is in flight, the
+            shelf gets out of the way so the current task owns the page. */}
+        {(phase.kind === 'idle' ||
+          phase.kind === 'no_sound' ||
+          phase.kind === 'not_a_bark' ||
+          phase.kind === 'error') && (
+          <Shelf sessionId={sessionId} refreshKey={historyRefreshKey} />
+        )}
 
         {phase.kind === 'error' && (
           <section
