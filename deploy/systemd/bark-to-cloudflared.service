@@ -1,0 +1,22 @@
+[Unit]
+Description=cloudflared quick tunnel for bark-to-game (HTTPS for getUserMedia)
+After=network.target nginx.service
+Wants=nginx.service
+
+[Service]
+Type=simple
+# Quick tunnel: cloudflared picks a random *.trycloudflare.com hostname
+# each time and pipes it to our local nginx on 9000. URL is printed to
+# stderr — see `systemctl status bark-to-cloudflared` for the current one,
+# or `journalctl -u bark-to-cloudflared | grep trycloudflare.com`.
+#
+# To make the URL stable, replace this ExecStart with a named tunnel:
+#   ExecStart=/usr/bin/cloudflared --no-autoupdate tunnel --token <TOKEN> run
+# and add a public hostname (bark.your-domain.com) -> http://127.0.0.1:9000
+# in the Cloudflare Zero Trust dashboard.
+ExecStart=/usr/bin/cloudflared tunnel --no-autoupdate --url http://127.0.0.1:9000
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
