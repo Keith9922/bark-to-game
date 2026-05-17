@@ -340,3 +340,29 @@ async def play_game(game_id: str) -> FileResponse:
     if not path.exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"game {game_id} not found")
     return FileResponse(path, media_type="text/html")
+
+
+@router.get("/showcase/all")
+async def showcase_all() -> dict[str, list[dict[str, object]]]:
+    """List every playable game.html under generated-games/ for the showcase
+    page. Pure filesystem scan — no DB. Each entry has just enough metadata
+    for a card: id, summary, play_url, when it was created."""
+    out: list[dict[str, object]] = []
+    if not GENERATED_GAMES_DIR.exists():
+        return {"items": out}
+    for child in sorted(GENERATED_GAMES_DIR.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
+        game_path = child / "game.html"
+        if not game_path.exists():
+            continue
+        summary_path = child / "SUMMARY.md"
+        summary = summary_path.read_text(encoding="utf-8").strip() if summary_path.exists() else ""
+        out.append(
+            {
+                "game_id": child.name,
+                "summary": summary,
+                "play_url": f"/api/game/{child.name}/play",
+                "created_at": game_path.stat().st_mtime,
+                "size_bytes": game_path.stat().st_size,
+            }
+        )
+    return {"items": out}

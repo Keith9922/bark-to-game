@@ -6,6 +6,7 @@ import HistoryPanel from './components/HistoryPanel'
 import ProgressBar from './components/ProgressBar'
 import Recorder from './components/Recorder'
 import SessionSwitcher from './components/SessionSwitcher'
+import ShowcasePanel from './components/ShowcasePanel'
 import TokenList from './components/TokenList'
 import {
   cancelJob,
@@ -371,6 +372,8 @@ function App() {
         {phase.kind === 'playable' && <GameFrame game={phase.game} onRestart={reset} />}
 
         <HistoryPanel sessionId={sessionId} refreshKey={historyRefreshKey} />
+
+        <ShowcasePanel />
 
         {phase.kind === 'error' && (
           <section
