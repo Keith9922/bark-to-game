@@ -1,0 +1,42 @@
+[
+  {
+    "name": "serene",
+    "description": "Calm, peaceful, meditative; gentle pacing and soft visuals."
+  },
+  {
+    "name": "chaotic",
+    "description": "Frantic, overwhelming, unpredictable; high object density and fast tempo."
+  },
+  {
+    "name": "melancholy",
+    "description": "Wistful, contemplative, sad-beautiful; slow strings and fading elements."
+  },
+  {
+    "name": "mischievous",
+    "description": "Playful trickery and gleeful trolling; bouncy motion and surprise twists."
+  },
+  {
+    "name": "majestic",
+    "description": "Grand, ceremonial, awe-inspiring; sweeping motion, brass and choir."
+  },
+  {
+    "name": "anxious",
+    "description": "Building tension, just-barely-coping; rising pitch and narrowing windows."
+  },
+  {
+    "name": "absurd",
+    "description": "Surreal, dreamlike, comic-strange; non-sequiturs and impossible geometry."
+  },
+  {
+    "name": "triumphant",
+    "description": "Heroic ascending energy; expanding visuals and victory motifs."
+  },
+  {
+    "name": "haunted",
+    "description": "Spectral, uneasy, half-seen; muted colours and lingering shadows."
+  },
+  {
+    "name": "celebratory",
+    "description": "Festive, joyful, expressive; bright colours and confetti motion."
+  }
+]
