@@ -68,6 +68,41 @@ self-contained HTML file. Non-negotiable constraints:
 8. Adapt PLAYBOOK patterns — do not paste verbatim if they clash with the recipe.
 9. Playable round must complete in ~30-60 s and be clearly winnable / losable.
 
+═══════ MOBILE-FIRST (required — most users open on phone) ═══════
+
+9a. Design for ONE THUMB, portrait orientation, in safe-area insets:
+    - Every tap target ≥ 44×44 CSS px. Pad small hit zones generously.
+    - NO reliance on hover, right-click, or multi-touch gestures.
+    - NO drag-precision requirements (no "draw an exact circle"). Swipe-then-
+      release is OK; pixel-precise pointer trails are not.
+    - Place primary controls in the bottom 60% of screen — top is hard to reach.
+    - Use `touch-action: manipulation` on the canvas to kill the 300ms tap delay.
+    - Respect `env(safe-area-inset-*)` so notch / home bar don't clip controls.
+    - Test mentally: can a one-handed thumb finish a full round on a 6.1" phone
+      with the device gripped? If not, redesign the input scheme.
+    - When the mechanic naturally uses keys (arrows / WASD), STILL provide a
+      visible on-screen touch alternative (dpad, swipe zone, big action button).
+
+═══════ UI POLISH (required — feel premium, not student-project) ═══════
+
+9b. Apply within the visual recipe's palette / motion vocabulary:
+    - **Hierarchy**: one dominant element per screen (title / hero target /
+      score). Supporting elements at ≤70% size or ≤60% alpha.
+    - **Depth**: layered shadows or glow for foreground, flatter background.
+      Cheap and effective: `ctx.shadowBlur` + `shadowColor`, OR a 2-px offset
+      same-colour underlay rectangle.
+    - **Micro-motion**: every interactive element breathes (scale 1.00 ↔ 1.05
+      over 1.2 s) when idle so it reads as "tappable". Tap = 60 ms scale-down
+      "press" feedback, then snap back.
+    - **Spacing**: respect an 8-px grid. No element touches another without
+      intentional negative space (≥ 8 px).
+    - **Type**: ≥ 16 px body, ≥ 22 px hero. Bilingual labels use the same
+      weight; align baselines, never centre one and left-align the other.
+    - **States**: pressed, disabled (40% alpha), active — all visually distinct.
+      NEVER leave a button looking the same across all states.
+    - **No emoji as primary UI icon** unless the recipe explicitly calls for
+      it. Draw shapes with Canvas; emoji breaks the recipe's palette.
+
 ═══════ BILINGUAL RULES SCREEN (required, shown ONCE on first-open) ═══════
 
 10. - Heading: a short title line (English + 简体中文).

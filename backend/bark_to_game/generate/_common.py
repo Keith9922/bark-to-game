@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import secrets
 from pathlib import Path
 from typing import Any, TypedDict
@@ -98,12 +99,30 @@ def _render_rubric(concept: dict[str, Any]) -> str:
     return "\n".join(bits)
 
 
+_MECHANIC_LINE_RE = re.compile(r"- Mechanic:\s*\*\*([\w\-]+)\*\*", re.IGNORECASE)
+
+
+def _extract_mechanic(style_triplet_summary: str) -> str | None:
+    """Pull the mechanic name out of a style-triplet summary block.
+
+    The summary is built in routes/game.py as:
+        - Art: **<art>** - ...
+        - Mechanic: **<mechanic>** - ...
+        - Mood: **<mood>** - ...
+    We use the mechanic to slice the playbook so only the relevant code
+    sketch lands in CLAUDE.md (keeps generate input stable as the pool grows).
+    """
+    m = _MECHANIC_LINE_RE.search(style_triplet_summary)
+    return m.group(1) if m else None
+
+
 def build_claude_md(
     concept: dict[str, Any],
     style_triplet_summary: str,
     visual_recipe_name: str,
     game_params: dict[str, Any] | None = None,
 ) -> str:
+    mechanic = _extract_mechanic(style_triplet_summary)
     return f"""\
 # Game generation spec
 
@@ -132,7 +151,7 @@ You must produce a single playable HTML5/Canvas game.
 {load_recipe_markdown(visual_recipe_name)}
 
 ## PLAYBOOK (adapt patterns; do not paste verbatim if they clash with the recipe)
-{playbook.load()}
+{playbook.load_for(mechanic)}
 
 ## OUTPUT
 - Write the full game to `./game.html` (single self-contained HTML).

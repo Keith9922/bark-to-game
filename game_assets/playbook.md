@@ -508,6 +508,261 @@ function update(dt){
 function aimAt(p){ aim = Math.atan2(p.y - bouncer.y, p.x - bouncer.x) }
 ```
 
+### Link_pair (连连看 / lianliankan — tap two identical tiles connectable by ≤2 turns)
+
+Mobile: large tap targets, tap highlights tile, tap second to attempt clear.
+
+```js
+// Grid sized to viewport, max ~7 cols × 9 rows; tile ≥ 44px each side.
+const COLS = Math.min(7, Math.floor(innerWidth / 56))
+const ROWS = Math.min(9, Math.floor((innerHeight - 120) / 56))
+const TILE = Math.min(72, Math.floor(Math.min(innerWidth/COLS, (innerHeight-120)/ROWS)))
+const KINDS = 6  // distinct shapes/colours; keep small so pairs are findable
+let board  // 2D: 0=empty, 1..KINDS=tile-kind
+let selA = null  // {r,c}
+function newBoard(){
+  const pairs = (COLS*ROWS)/2|0
+  const flat = []
+  for (let i=0;i<pairs;i++){ const k = 1 + (i % KINDS); flat.push(k,k) }
+  for (let i=flat.length-1;i>0;i--){ const j=(Math.random()*(i+1))|0; [flat[i],flat[j]]=[flat[j],flat[i]] }
+  board = Array.from({length:ROWS}, (_,r) => flat.slice(r*COLS,(r+1)*COLS))
+}
+// BFS-style path with ≤2 right-angle turns. Cells outside grid count as empty
+// (so paths can route around the board edges, classic lianliankan rule).
+function canConnect(a, b){
+  if (board[a.r][a.c] === 0 || board[b.r][b.c] === 0) return false
+  if (board[a.r][a.c] !== board[b.r][b.c]) return false
+  const W = COLS+2, H = ROWS+2  // padded grid
+  const empty = (r,c) => r<0||r>=ROWS||c<0||c>=COLS || board[r][c]===0
+  // try every (turn1, turn2) corner pair; with ≤2 turns the path is one of:
+  // straight | L-shape | Z-shape. Implementation left as exercise — keep it
+  // simple, accept a corner if both segments are clear of non-empty tiles.
+  // ... return true/false
+}
+function tapTile(r, c){
+  if (board[r][c] === 0) return
+  if (!selA){ selA = {r,c}; return }
+  if (selA.r === r && selA.c === c){ selA = null; return }
+  if (canConnect(selA, {r,c})){
+    board[selA.r][selA.c] = 0; board[r][c] = 0; score += 10; flash()
+  } else {
+    miss(); shake()
+  }
+  selA = null
+}
+// Mobile input: pointer/click directly → tapTile(r,c). NO drag required.
+// Visual: highlight selA with a 2-px glow border + breathing scale 1.0→1.08.
+```
+
+### Snake (贪吃蛇 — head + body, eat to grow, dies on self/wall)
+
+Mobile-first: swipe-anywhere in the bottom 60% of the screen sets direction.
+
+```js
+const CELL = 24
+const COLS = Math.floor(innerWidth / CELL)
+const ROWS = Math.floor((innerHeight - 80) / CELL)
+let snake, dir, food, tick, tickMs  // dir: {dx,dy}
+function reset(){
+  snake = [{x: COLS>>1, y: ROWS>>1}]
+  dir = {dx: 1, dy: 0}
+  tickMs = 180   // warm-up easy speed; Phase 2 drops to 120, Phase 3 to 80
+  tick = 0
+  placeFood()
+}
+function placeFood(){
+  while (true){
+    const f = {x: (Math.random()*COLS)|0, y: (Math.random()*ROWS)|0}
+    if (!snake.some(s => s.x===f.x && s.y===f.y)){ food = f; return }
+  }
+}
+function step(){
+  const h = snake[0]
+  const nx = h.x + dir.dx, ny = h.y + dir.dy
+  if (nx<0||nx>=COLS||ny<0||ny>=ROWS) return lose()         // wall
+  if (snake.some(s => s.x===nx && s.y===ny)) return lose()  // self
+  snake.unshift({x:nx, y:ny})
+  if (nx === food.x && ny === food.y){ score++; placeFood() } else snake.pop()
+}
+function update(dt){ tick += dt*1000; if (tick >= tickMs){ tick = 0; step() } }
+// Touch — swipe in any direction:
+let t0 = null
+addEventListener('touchstart', e => { t0 = e.touches[0] }, {passive:true})
+addEventListener('touchend',   e => {
+  const t = e.changedTouches[0]; if (!t0) return
+  const dx = t.clientX - t0.clientX, dy = t.clientY - t0.clientY
+  if (Math.hypot(dx,dy) < 24) return                         // too short
+  if (Math.abs(dx) > Math.abs(dy)){
+    if (dir.dx === 0) dir = { dx: dx>0?1:-1, dy: 0 }         // can't reverse
+  } else {
+    if (dir.dy === 0) dir = { dx: 0, dy: dy>0?1:-1 }
+  }
+  t0 = null
+}, {passive:true})
+// Keyboard — arrows / WASD set the same direction (still can't reverse).
+```
+
+### Sokoban (推箱子 — push crates onto goals; never pull; undo required)
+
+Tight grids (8×8 max), 4-direction dpad, big visible undo button.
+
+```js
+// Grid tiles: 0=floor, 1=wall, 2=goal. Crates and player are separate.
+let grid, crates, goals, player, history  // history = stack of {player,crates}
+function load(level){
+  grid = level.grid.map(r => r.slice())
+  crates = level.crates.map(c => ({...c}))
+  goals = level.goals.slice()
+  player = {...level.player}
+  history = []
+}
+function snapshot(){
+  history.push({ player: {...player}, crates: crates.map(c => ({...c})) })
+  if (history.length > 50) history.shift()
+}
+function undo(){
+  const s = history.pop(); if (!s) return
+  player = s.player; crates = s.crates
+}
+function move(dx, dy){
+  const nx = player.x+dx, ny = player.y+dy
+  if (grid[ny]?.[nx] === 1) return
+  const ci = crates.findIndex(c => c.x===nx && c.y===ny)
+  if (ci >= 0){
+    const cx = nx+dx, cy = ny+dy
+    if (grid[cy]?.[cx] === 1) return
+    if (crates.some(c => c.x===cx && c.y===cy)) return
+    snapshot(); crates[ci] = {x:cx, y:cy}; player = {x:nx, y:ny}
+  } else {
+    snapshot(); player = {x:nx, y:ny}
+  }
+  if (allCratesOnGoals()) winLevel()
+}
+function allCratesOnGoals(){ return crates.every(c => goals.some(g => g.x===c.x && g.y===c.y)) }
+// Mobile dpad — four 44×44px buttons at the bottom + a separate UNDO ↶ button.
+// Desktop arrows + Z for undo.
+```
+
+### Runner (火柴人快跑 — auto-run; tap to jump, swipe-down to slide)
+
+Single-touch playable. Obstacle spawn cadence + speed driven by AUDIO DNA.
+
+```js
+const GROUND_Y = innerHeight - 100
+let player = { x: 80, y: GROUND_Y, vy: 0, sliding: 0 }
+const GRAVITY = 2200, JUMP_V = -820
+const obstacles = []  // { x, w, h, kind: 'low' | 'high' | 'gap' }
+function update(dt){
+  // physics
+  player.vy += GRAVITY*dt; player.y += player.vy*dt
+  if (player.y > GROUND_Y){ player.y = GROUND_Y; player.vy = 0 }
+  if (player.sliding > 0) player.sliding -= dt
+  // scroll obstacles toward player
+  const speed = 320 * currentPacingFactor()   // 1.0 base, ramps with DNA
+  obstacles.forEach(o => o.x -= speed*dt)
+  // collide
+  for (const o of obstacles){
+    if (o.x < player.x+24 && o.x+o.w > player.x-24){
+      const playerH = player.sliding>0 ? 20 : 48
+      if (o.kind === 'low'  && player.y > GROUND_Y - playerH) return lose()
+      if (o.kind === 'high' && player.sliding <= 0) return lose()
+    }
+  }
+  // spawn next
+  if (!obstacles.length || obstacles[obstacles.length-1].x < innerWidth - 240) {
+    const r = Math.random()
+    obstacles.push({ x: innerWidth + 20, w: 28, h: 48, kind: r<0.6?'low':'high' })
+  }
+}
+function jump(){ if (player.y === GROUND_Y) player.vy = JUMP_V }
+function slide(){ if (player.y === GROUND_Y) player.sliding = 0.4 }
+// Touch — tap-anywhere to jump, swipe-down to slide.
+addEventListener('pointerdown', jump)
+let pY = 0
+addEventListener('touchstart', e => { pY = e.touches[0].clientY }, {passive:true})
+addEventListener('touchmove',  e => {
+  if (e.touches[0].clientY - pY > 60){ slide(); pY = 1e9 }
+}, {passive:true})
+// Keyboard: Space/Up = jump, Down = slide.
+```
+
+### Jumper (蹦蹦跳跳 — auto-bounce, steer left/right to land on platforms)
+
+Doodle-jump style. Single horizontal-input axis. Mobile = tilt via swipe-anywhere; desktop = A/D or ←/→.
+
+```js
+let player = { x: innerWidth/2, y: innerHeight - 200, vx: 0, vy: 0 }
+const GRAVITY = 1400, BOUNCE_V = -780, MAX_VX = 320
+const platforms = []  // {x,y,w,kind:'static'|'moving'|'breakable'}
+function reset(){
+  platforms.length = 0
+  for (let i=0;i<7;i++) platforms.push({ x: Math.random()*innerWidth, y: innerHeight - i*80, w: 80, kind:'static' })
+}
+function update(dt){
+  player.vy += GRAVITY*dt; player.y += player.vy*dt
+  player.x += player.vx*dt
+  // wrap horizontally — classic doodle-jump feel
+  if (player.x < 0) player.x += innerWidth
+  if (player.x > innerWidth) player.x -= innerWidth
+  // land on platform if falling and crossing it
+  if (player.vy > 0){
+    for (const p of platforms){
+      if (player.x > p.x && player.x < p.x+p.w &&
+          player.y > p.y - 4 && player.y < p.y + 12){
+        player.y = p.y; player.vy = BOUNCE_V; ping()
+        if (p.kind === 'breakable') p.dead = true
+      }
+    }
+  }
+  // recycle platforms that scroll off bottom; spawn new ones above
+  // ... (camera scrolls when player goes above screen midpoint)
+  if (player.y > innerHeight + 80) lose()
+}
+// Horizontal input — tilt via touch drag delta OR keyboard
+let dragX = 0
+addEventListener('touchmove', e => {
+  const x = e.touches[0].clientX
+  player.vx = Math.max(-MAX_VX, Math.min(MAX_VX, (x - innerWidth/2) * 4))
+}, {passive:true})
+addEventListener('touchend', () => { player.vx = 0 }, {passive:true})
+// Keyboard: hold A/← / D/→ sets vx.
+```
+
+### Roguelike_dive (micro-roguelike — descend floors, pick cards that mutate next floor)
+
+Tight scope: 5–8 floors per run, 4×4 procedural grid each, 3 cards offered between floors.
+
+```js
+let floor = 0, hp = 3, deck = []  // active modifier cards
+const CARDS = [
+  { id:'haste',   name:'快走 / Haste',   apply: state => state.moveSpeed *= 1.5 },
+  { id:'thorn',   name:'反伤 / Thorns',  apply: state => state.reflect = true },
+  { id:'shield',  name:'护盾 / Shield',  apply: state => state.shield = 1 },
+  { id:'fork',   name:'多视野 / Fork',   apply: state => state.vision += 1 },
+  { id:'frenzy', name:'狂热 / Frenzy',   apply: state => { state.dmg *= 2; hp -= 1 } },
+]
+function newRun(){ floor = 0; hp = 3; deck = []; descend() }
+function descend(){
+  floor++
+  if (floor > 7){ winRun(); return }
+  generateFloor()              // 4×4 grid, 2-3 enemies, 1 stair, 1 chest
+  deck.forEach(c => c.apply(playerState))
+}
+function clearFloor(){
+  // Offer 3 random cards from CARDS — player taps one, it joins deck, descend.
+  const offer = pickRandom(CARDS, 3)
+  showCardChoice(offer, chosen => { deck.push(chosen); descend() })
+}
+// Combat is one-hit-trade per adjacent step into enemy tile.
+function attack(target){
+  target.hp -= playerState.dmg
+  if (target.hp <= 0) { removeEnemy(target); maybeClearFloor() }
+  else { hp -= target.dmg; if (hp <= 0) gameOver() }
+}
+// Mobile: 4 large dpad buttons OR tap-an-adjacent-cell to move/attack.
+// Card-choice screen: 3 big tap-cards centred, each 280×180 px.
+```
+
 ---
 
 ## Game-over loop
