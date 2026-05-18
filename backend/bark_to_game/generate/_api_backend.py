@@ -70,14 +70,14 @@ self-contained HTML file. Non-negotiable constraints:
 
 ═══════ BILINGUAL RULES SCREEN (required, shown ONCE on first-open) ═══════
 
-10. - Heading: a short title line (English + 中文).
-    - Three sections, EACH with both 中文 and English copy stacked:
-        · GOAL / 目標 — how to win, in one sentence
+10. - Heading: a short title line (English + 简体中文).
+    - Three sections, EACH with both 简体中文 and English copy stacked:
+        · GOAL / 目标 — how to win, in one sentence
         · CONTROLS / 操作 — exact buttons / keys / taps / swipes for desktop AND mobile
         · RULES / 玩法 — scoring, penalties, special events, time limits — 2-4 bullets
-    - The Chinese half MAY use Traditional Chinese (繁體) selectively for
-      headings or single-word labels to fit the visual style. Body copy
-      can be Simplified — pick whichever flows better with the recipe.
+    - **Chinese MUST be Simplified Chinese (简体中文) only — never Traditional
+      (繁體). Avoid characters like 繁體 / 點擊 / 開始 / 來 / 進 / 點 etc.**
+      Correct examples: 简体 / 点击 / 开始 / 来 / 进 / 点.
     - English half is the primary fallback: must be clear and complete
       even to a reader who skips the Chinese.
     - Dismiss the rules with the same tap/click/Enter that starts play.
@@ -86,12 +86,12 @@ self-contained HTML file. Non-negotiable constraints:
 
 11. After the rules card is dismissed, the first 5 seconds of play MUST:
     a. **Show the first interactive element with a visible affordance** —
-       a pulsing ring, a hand-cursor wiggle, an arrow, a "TAP HERE" caption,
-       or a slow demo blip. The affordance fades out the moment the player
-       successfully performs the first action.
+       a pulsing ring, a hand-cursor wiggle, an arrow, a "TAP HERE / 点这里"
+       caption, or a slow demo blip. The affordance fades out the moment the
+       player successfully performs the first action.
     b. **The HUD must be permanently visible** — a thin strip with score /
        lives / progress at the top OR bottom edge, plus a one-line
-       control-hint that updates contextually (e.g. "← →  swipe / 滑動 ←→").
+       control-hint that updates contextually (e.g. "← →  swipe / 滑动 ←→").
        Do NOT bury controls in a one-shot rules card; they must be a
        constant reminder during play.
     c. **No silent waits >2s.** If nothing happens, spawn something or
@@ -102,22 +102,40 @@ self-contained HTML file. Non-negotiable constraints:
 12. The spec includes a block called "AUDIO DNA" with concrete integers
     (tempo / spawn_interval_ms / max_concurrent / escalation_per_min /
      randomness_pct). USE THESE NUMBERS LITERALLY — do not guess your own
-    timing. They are the bark-derived pacing for THIS specific game.
-    - spawn_interval_ms → base setInterval / time-between-spawns
-    - max_concurrent    → cap on entity array length
+    timing. They are the bark-derived pacing for THIS specific game's
+    eventual STEADY-STATE pacing (not the opening 20 s, see §13).
+    - spawn_interval_ms → eventual base setInterval / time-between-spawns
+    - max_concurrent    → eventual cap on entity array length
     - escalation_per_min → multiply spawn rate (or whatever pacing knob fits)
-      by this factor every 60s of play
+      by this factor every 60 s of play (after the warm-up ends)
     - randomness_pct    → ±% jitter on spawn timings and positions
+
+═══════ DIFFICULTY CURVE — EASY → MEDIUM → HARD (required) ═══════
+
+13. **The first 20 seconds MUST be obviously easier than steady-state**, so a
+    first-time player gets early wins and feels in control before things ramp.
+    This is the difference between "I'll play one more round" and "I quit".
+
+    Implement a three-phase curve:
+      • **PHASE 1 — Warm-up (0–20 s):** slow it WAY down.
+        spawn_interval_ms × 2.0, max_concurrent × 0.5,
+        randomness_pct × 0.3.  Easy / forgiving / obvious.
+      • **PHASE 2 — Standard (20–60 s):** ramp linearly to AUDIO DNA's
+        spawn_interval_ms / max_concurrent over 10 s. Steady-state pressure.
+      • **PHASE 3 — Pressure (60 s+):** apply escalation_per_min on top of
+        standard. Real challenge, this is where strong players show.
+
+    When PHASE 2 begins, fire the spec's **escalation_moment** as the
+    visible "now it gets real" cue — flash a brief banner ("WAVE 2 / 第二波",
+    "+SPEED", etc.) plus a synth sting. The same kind of cue can fire again
+    at PHASE 3 if there is room.
 
 ═══════ REPLAYABILITY JUICE (required) ═══════
 
-13. - Implement the **escalation_moment** from the spec literally: when it
-      triggers, flash a brief banner ("WAVE 2 / 第二波" etc.) plus a
-      synth sting.
-    - On every meaningful event (score, miss, win, fail), trigger a quick
+14. - On every meaningful event (score, miss, win, fail), trigger a quick
       visual + audio cue (screen flash / shake / particle / chord).
-    - The fail/win screen invites the user back: include both a 中文 prompt
-      ("再來一次 / 再来一次") AND an English one ("Tap to replay") so the
+    - The fail/win screen invites the user back: include both a 简体中文
+      prompt ("再来一次") AND an English one ("Tap to replay") so the
       retry CTA is unambiguous. State the **replay_hook** from the spec
       (e.g. "Best score: 12 — beat it next time").
 

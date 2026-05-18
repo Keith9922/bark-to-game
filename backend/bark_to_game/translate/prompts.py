@@ -39,7 +39,7 @@ You will be given:
     around them, not decoratively reference them
   • a list of past concepts to AVOID resembling
 
-═══════ PLAYABILITY RUBRIC (every concept must answer all six) ═══════
+═══════ PLAYABILITY RUBRIC (every concept must answer all seven) ═══════
 
   1. CORE ACTION:  what the player physically does every 1–3 seconds
                    (must match the mechanic's `core_loop`)
@@ -49,24 +49,39 @@ You will be given:
                           (pulsing target, hand cursor, arrow, demo blip)
                           tells the player what to touch first — WITHOUT
                           reading the rules screen
-  5. ESCALATION MOMENT: an explicit, visible "now it gets harder" event
-                       (new wave, speed-up, board flip, etc.) the player
-                       will feel — paced via the AUDIO DNA escalation rate
-  6. REPLAY HOOK:   why does the player want a second run?
+  5. EASY START → HARD END: describe a 3-phase difficulty curve —
+                          • warm-up (0–20 s): obviously easier than spec
+                          • standard (20–60 s): match AUDIO DNA pacing
+                          • pressure (60 s+): apply escalation_per_min
+                          The first 20 s should give the player early wins
+                          on purpose. They earn the difficulty.
+  6. ESCALATION MOMENT: at the warm-up → standard handoff (~20 s), the
+                       explicit visible "now it gets real" event — banner,
+                       speed-up, new color, board flip, etc.
+  7. REPLAY HOOK:   why does the player want a second run?
                     (chase a score / unlock a variant / beat a personal time /
                      "I almost had it" near-miss)
 
-═══════ AUDIO DNA BINDING ═══════
+═══════ AUDIO DNA BINDING (steady-state, not opening 20 s) ═══════
 
-The provided knobs are concrete and non-negotiable as design constraints:
-  • tempo (slow/medium/fast/frantic)    → controls base spawn / beat cadence
-  • density (sparse/moderate/dense)      → controls how many entities can be on screen
-  • intensity (gentle/firm/harsh)        → controls escalation rate (how fast it ramps)
-  • variability (steady/shifting/wild)   → controls randomness in spawn pattern
+The provided knobs are concrete and non-negotiable as design constraints
+for the game's STEADY-STATE pacing (Phase 2 above):
+  • tempo (slow/medium/fast/frantic)    → base spawn / beat cadence at steady state
+  • density (sparse/moderate/dense)      → cap on simultaneous entities at steady state
+  • intensity (gentle/firm/harsh)        → escalation rate in Phase 3
+  • variability (steady/shifting/wild)   → randomness in spawn pattern
 
 If the bark is FRANTIC + DENSE + HARSH, do NOT propose a meditative slow puzzle.
 If it is SLOW + SPARSE + GENTLE, do NOT propose a frantic twitch shooter.
-The bark IS the difficulty profile — your concept must wear it.
+The bark IS the steady-state difficulty profile — but ALWAYS warm up first.
+
+═══════ LANGUAGE & STYLE NOTES ═══════
+
+• When the concept text includes Chinese, use **Simplified Chinese (简体中文)
+  only — never Traditional**. Use 点击/开始/来/进; never 點擊/開始/來/進.
+• Title MAY be bilingual (English + 简体中文), e.g. "Neon Chase 霓光追击".
+• Player roles, mechanics, visual descriptions: prefer evocative, specific
+  imagery over generic "you are a ... that ...".
 
 ═══════ OUTPUT ═══════
 
@@ -77,14 +92,14 @@ Strict JSON only — no prose, no markdown fences. Schema:
     {
       "probability": 0.0-1.0,
       "concept": {
-        "title": "<short evocative name, ideally bilingual hint>",
+        "title": "<short evocative name, ideally bilingual: English + 简体中文>",
         "tagline": "<one-sentence hook>",
         "player": "<who the player controls in one sentence>",
         "core_mechanic": "<the single core action loop — must match mechanic.core_loop>",
         "win_condition": "<a visible HUD-trackable WIN: hit N, survive M sec, fill bar>",
         "fail_condition": "<a visible HUD-trackable LOSS: 3 strikes, bar drains, timeout>",
         "onboarding_hint": "<the FIRST visual prompt in the playfield — what pulses, glows, or appears with an arrow during seconds 0-3 of play, telling the player WHERE to act and HOW>",
-        "escalation_moment": "<the explicit visible 'difficulty just changed' event — name what flashes and what changes>",
+        "escalation_moment": "<the explicit visible 'difficulty just changed' event at the ~20 s mark — name what flashes and what changes>",
         "replay_hook": "<why a player retries — high score / variant / near-miss>",
         "visual_summary": "<2-3 sentences honouring the visual recipe + art style>",
         "audio_summary": "<1-2 sentences on music + SFX>"
@@ -94,15 +109,33 @@ Strict JSON only — no prose, no markdown fences. Schema:
 }
 
 Generate exactly 5 candidates. The probabilities should sum to ~1.0 and reflect
-your confidence that each interpretation honours both the input tokens AND
-satisfies the playability rubric.
+your confidence that each interpretation honours the input tokens AND the
+playability rubric AND the audio-DNA pacing constraints.
 
-The 5 candidates must be **meaningfully distinct** along at least TWO axes:
-  • different player roles (not all "you are a [thing] that [verb]s")
-  • different win/loss framings (not all "survive N waves")
-  • different onboarding hints (not all "tap the centre")
-  • different escalation moments
-A merely re-skinned candidate is wasted; cut it for a more divergent one.
+═══════ DIVERSITY REQUIREMENTS (anti-homogenization, strict) ═══════
+
+The 5 candidates must be **meaningfully distinct along at least THREE of these
+axes** — re-skinning is forbidden and wastes a slot:
+
+  • PLAYER ROLE & PERSPECTIVE   (1st-person hand vs top-down hero vs side-on
+                                vehicle vs disembodied force vs swarm of N)
+  • INPUT MODALITY              (single-tap rhythm vs swipe arc vs hold+release
+                                vs drag-and-drop vs free-stroke draw)
+  • WIN FRAMING                 (score-attack vs survive-timer vs collect-set
+                                vs reach-distance vs solve-puzzle)
+  • VISUAL COMPOSITION          (centred & framed vs full-bleed vs vignette
+                                vs split-screen vs minimalist with negative space)
+  • EMOTIONAL ARC               (tense crescendo vs comic relief vs solemn
+                                build vs surprise twist vs steady-state flow)
+  • TIME / SPACE STRUCTURE      (continuous endless vs round-based vs single
+                                long set-piece vs procedural generated)
+
+If two candidates differ only in colour / theme / wording, drop one. Replace
+it with something that breaks ≥3 of the above axes from the others. Be brave —
+the goal is that the 5 candidates feel like they came from 5 different designers.
+
+DO NOT default to "catch / sort / match falling objects" when the mechanic is
+something else. The mechanic's `core_loop` IS the verb; honour it literally.
 """
 
 

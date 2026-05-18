@@ -46,12 +46,47 @@ def test_system_prompt_carries_rubric_and_audio_dna_sections() -> None:
     sp = prompts.SYSTEM_PROMPT
     assert "PLAYABILITY RUBRIC" in sp
     assert "AUDIO DNA BINDING" in sp
-    # Six rubric items by ordinal — the model will see and answer them.
-    for item in ("CORE ACTION", "VISIBLE GOAL", "VISIBLE THREAT", "ZERO-READ ONBOARDING", "ESCALATION MOMENT", "REPLAY HOOK"):
+    # Seven rubric items now (added EASY START → HARD END).
+    for item in (
+        "CORE ACTION", "VISIBLE GOAL", "VISIBLE THREAT", "ZERO-READ ONBOARDING",
+        "EASY START", "ESCALATION MOMENT", "REPLAY HOOK",
+    ):
         assert item in sp, f"missing rubric item: {item}"
     # New schema fields are required in the JSON spec the model emits.
     for field in ("onboarding_hint", "escalation_moment", "replay_hook"):
         assert field in sp, f"missing schema field: {field}"
+
+
+def test_translate_prompt_requires_simplified_chinese() -> None:
+    """Prompt MUST tell the model to use Simplified, not Traditional."""
+    sp = prompts.SYSTEM_PROMPT
+    assert "Simplified Chinese" in sp or "简体中文" in sp
+    # The prompt should make a Do / Don't contrast so it actually lands.
+    assert "Traditional" in sp or "繁體" in sp
+    # Concrete simplified character examples present (chosen so they don't
+    # accidentally match in Traditional form).
+    for ex in ("点击", "开始"):
+        assert ex in sp, f"missing example: {ex}"
+
+
+def test_translate_prompt_requires_easy_to_hard_curve() -> None:
+    """The rubric must demand a 3-phase difficulty curve, not just escalation."""
+    sp = prompts.SYSTEM_PROMPT
+    for needle in ("warm-up", "20", "60", "steady"):
+        assert needle in sp.lower() if needle.isalpha() else needle in sp, (
+            f"missing curve marker: {needle}"
+        )
+
+
+def test_translate_prompt_strengthens_diversity_requirements() -> None:
+    """5 candidates must differ along multiple structural axes, not just theme."""
+    sp = prompts.SYSTEM_PROMPT
+    assert "DIVERSITY REQUIREMENTS" in sp
+    for axis in (
+        "PLAYER ROLE", "INPUT MODALITY", "WIN FRAMING",
+        "VISUAL COMPOSITION", "EMOTIONAL ARC",
+    ):
+        assert axis in sp, f"missing diversity axis: {axis}"
 
 
 def test_user_prompt_includes_audio_dna_concrete_numbers() -> None:
