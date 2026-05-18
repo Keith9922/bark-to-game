@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, status
 
 from bark_to_game.schemas.concept import (
     Concept,
+    GameParams,
     StyleCardRef,
     StyleTriplet,
     TranslateRequest,
@@ -52,5 +53,6 @@ async def translate_tokens(req: TranslateRequest) -> TranslateResponse:
             ),
         ),
         visual_recipe=result["visual_recipe"],
+        game_params=GameParams(**result["game_params"]),
         avoided_summaries=result["avoided_summaries"],
     )

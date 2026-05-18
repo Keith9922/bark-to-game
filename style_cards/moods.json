@@ -38,5 +38,29 @@
   {
     "name": "celebratory",
     "description": "Festive, joyful, expressive; bright colours and confetti motion."
+  },
+  {
+    "name": "dreamlike",
+    "description": "Soft-focused, slow-fading transitions, surreal logic; objects melt and reform with no urgency."
+  },
+  {
+    "name": "defiant",
+    "description": "Punk anti-authority energy; jagged motion, broken grids, raised middle-finger attitude."
+  },
+  {
+    "name": "nostalgic",
+    "description": "Warm sepia memory tint; lo-fi grain, gentle vignette, like a faded family photo."
+  },
+  {
+    "name": "focused",
+    "description": "Cool concentration; minimal distraction, single bright target on neutral ground."
+  },
+  {
+    "name": "euphoric",
+    "description": "Manic joyful overload; rainbow flashes, hyperactive trails, peak runner's-high vibe."
+  },
+  {
+    "name": "stoic",
+    "description": "Monumental and unmoved; slow heavy motion, deliberate restraint, weight of mountains."
   }
 ]

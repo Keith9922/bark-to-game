@@ -142,6 +142,12 @@ export interface Concept {
   core_mechanic: string
   win_condition: string
   fail_condition: string
+  // Playability-rubric fields (added in feat/playability-overhaul). Optional
+  // because older history rows / legacy backends may not provide them — UI
+  // renders nothing for an empty slot rather than crashing.
+  onboarding_hint?: string
+  escalation_moment?: string
+  replay_hook?: string
   visual_summary: string
   audio_summary: string
 }
@@ -151,6 +157,17 @@ export interface StyleCardRef {
   description: string
 }
 
+export interface GameParams {
+  tempo: 'slow' | 'medium' | 'fast' | 'frantic'
+  density: 'sparse' | 'moderate' | 'dense'
+  intensity: 'gentle' | 'firm' | 'harsh'
+  variability: 'steady' | 'shifting' | 'wild'
+  spawn_interval_ms: number
+  max_concurrent: number
+  escalation_per_min: number
+  randomness_pct: number
+}
+
 export interface TranslateResponse {
   chosen: Concept
   chosen_probability: number
@@ -158,6 +175,7 @@ export interface TranslateResponse {
   candidate_count: number
   style_triplet: { art: StyleCardRef; mechanic: StyleCardRef; mood: StyleCardRef }
   visual_recipe: string
+  game_params: GameParams
   avoided_summaries: string[]
 }
 
@@ -231,6 +249,7 @@ export async function postGenerate(
       concept: translation.chosen,
       style_triplet: translation.style_triplet,
       visual_recipe: translation.visual_recipe,
+      game_params: translation.game_params,
       audio_hash: analyzeResult.audio_hash,
       session_id: sessionId,
     }),

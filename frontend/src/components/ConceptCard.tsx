@@ -15,7 +15,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 }
 
 export default function ConceptCard({ translation }: Props) {
-  const { chosen, style_triplet, visual_recipe, candidate_count, chosen_probability } = translation
+  const { chosen, style_triplet, visual_recipe, candidate_count, chosen_probability, game_params } = translation
 
   return (
     <section
@@ -54,6 +54,32 @@ export default function ConceptCard({ translation }: Props) {
           <Field label="🔊 声音氛围">{chosen.audio_summary}</Field>
         </div>
       </div>
+
+      {game_params && (
+        <div className="mt-5 pt-4 border-t border-amber-crt/10">
+          <div className="text-xs text-amber-crt/50 mb-2">
+            🐕 这次狗叫的"游戏 DNA" · audio → gameplay
+          </div>
+          <div className="flex flex-wrap gap-2 text-[11px]">
+            <span className="px-2 py-1 border border-signal/40 text-signal">
+              节奏 {game_params.tempo}
+            </span>
+            <span className="px-2 py-1 border border-signal/40 text-signal">
+              密度 {game_params.density}
+            </span>
+            <span className="px-2 py-1 border border-signal/40 text-signal">
+              力度 {game_params.intensity}
+            </span>
+            <span className="px-2 py-1 border border-signal/40 text-signal">
+              变化 {game_params.variability}
+            </span>
+            <span className="px-2 py-1 border border-amber-crt/20 text-amber-crt/60 font-mono">
+              spawn ≈ {game_params.spawn_interval_ms}ms · ≤{game_params.max_concurrent} · ×
+              {game_params.escalation_per_min.toFixed(2)}/min · ±{game_params.randomness_pct}%
+            </span>
+          </div>
+        </div>
+      )}
 
       <footer className="mt-6 pt-4 border-t border-amber-crt/10 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs text-amber-crt/60">
         <div>
