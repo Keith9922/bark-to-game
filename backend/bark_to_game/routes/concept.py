@@ -29,9 +29,13 @@ async def translate_tokens(req: TranslateRequest) -> TranslateResponse:
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     except Exception as exc:  # SDK/network/parsing failure
+        # Preserve the exception type — httpx.ReadTimeout etc. have an empty
+        # str() and would otherwise surface as the bare "translation failed:"
+        # message we saw in prod after PR #29.
+        body = f"{type(exc).__name__}: {exc!s}" if str(exc) else type(exc).__name__
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY,
-            f"translation failed: {exc!s}",
+            f"translation failed: {body}",
         ) from exc
 
     triplet = result["style_triplet"]

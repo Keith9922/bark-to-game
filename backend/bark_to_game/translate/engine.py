@@ -36,10 +36,12 @@ from bark_to_game import settings
 from bark_to_game.generate._common import RateLimitedError
 from bark_to_game.translate import archive, prompts, recipes, style_cards
 
-# Translate is non-streaming and short — give it a tighter ceiling than the
-# generate path. If the API takes >60s for a JSON of 5 concepts something is
-# very wrong upstream.
-_REQUEST_TIMEOUT_S = 60.0
+# Translate is non-streaming and short, but the playability-rubric prompt
+# grew significantly: 5 candidates × 11 fields per candidate, plus a much
+# longer system prompt. On a busy Sonnet endpoint a clean response can
+# take 60–90s. We saw 100% 60s timeouts in prod after PR #29; bump to 120s.
+# If the API genuinely takes >120s, something IS wrong upstream.
+_REQUEST_TIMEOUT_S = 120.0
 
 
 class Concept(TypedDict):
@@ -228,20 +230,30 @@ async def _call_claude(system_prompt: str, user_prompt: str) -> str:
         "content-type": "application/json",
     }
 
-    async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_S) as client:
-        resp = await client.post(
-            f"{settings.API_BASE_URL}/v1/messages", headers=headers, json=payload
-        )
-        if resp.status_code == 429:
-            raise RateLimitedError(
-                f"translate API rate-limited (HTTP 429): {resp.text[:300]}",
-                resets_at=None,
+    try:
+        async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_S) as client:
+            resp = await client.post(
+                f"{settings.API_BASE_URL}/v1/messages", headers=headers, json=payload
             )
-        if resp.status_code >= 400:
-            raise RuntimeError(
-                f"translate API HTTP {resp.status_code}: {resp.text[:300]}"
-            )
-        body = resp.json()
+            if resp.status_code == 429:
+                raise RateLimitedError(
+                    f"translate API rate-limited (HTTP 429): {resp.text[:300]}",
+                    resets_at=None,
+                )
+            if resp.status_code >= 400:
+                raise RuntimeError(
+                    f"translate API HTTP {resp.status_code}: {resp.text[:300]}"
+                )
+            body = resp.json()
+    except httpx.TimeoutException as exc:
+        # httpx.ReadTimeout / ConnectTimeout / etc. all have empty str() — wrap
+        # in a RuntimeError with the type + ceiling so the 502 message tells
+        # the user *why*, not just "translation failed:" with no detail.
+        raise RuntimeError(
+            f"translate API timed out after {_REQUEST_TIMEOUT_S:.0f}s "
+            f"({type(exc).__name__}); the upstream model didn't return in time. "
+            f"Try again, or shorten the prompt."
+        ) from exc
 
     content = body.get("content") or []
     text_parts = [

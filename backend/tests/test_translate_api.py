@@ -143,3 +143,18 @@ async def test_call_claude_concatenates_multiple_text_blocks(
 
     _patch_client_with(monkeypatch, handler)
     assert await engine._call_claude("s", "u") == '{"candidates":[]}'
+
+
+async def test_call_claude_timeout_surfaces_informative_runtime_error(
+    monkeypatch: pytest.MonkeyPatch, patch_settings: None
+) -> None:
+    """Regression: httpx.ReadTimeout has str(exc) == '' which produced the
+    bare 'translation failed:' user-facing message in prod (PR #29). The
+    wrapper must convert it into a RuntimeError carrying timeout + type."""
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("read timed out")
+
+    _patch_client_with(monkeypatch, handler)
+    with pytest.raises(RuntimeError, match="timed out after .*s.*ReadTimeout"):
+        await engine._call_claude("s", "u")
