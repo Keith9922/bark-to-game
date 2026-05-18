@@ -126,7 +126,7 @@ function drawHUD(state) {
   text(`SCORE ${state.score}  ·  ❤ ${state.lives}`, 12, 6, 14, '#fff')
   // contextual control hint — change per game state
   const hint = state.phase === 'aim' ? '点击 / TAP to shoot'
-             : state.phase === 'move' ? '← →  swipe  滑動'
+             : state.phase === 'move' ? '← →  swipe / 滑动'
              : 'ENTER / TAP'
   text(hint, innerWidth - 12, 6, 14, '#ffd400', 'right')
 }
@@ -176,29 +176,87 @@ function drawBanner(){
 // setInterval(()=>escalate('WAVE ' + (++wave) + ' / 第' + wave + '波'), 25000)
 ```
 
-## Audio DNA usage — the bark IS the pacing
+## Audio DNA usage with EASY → MEDIUM → HARD curve (REQUIRED)
 
-CLAUDE.md provides concrete integers. Read them and use them directly:
+CLAUDE.md provides concrete integers for the **steady-state** pacing
+(Phase 2). The first 20 s MUST be obviously easier so new players get
+early wins. Use this 3-phase scaffold — don't just use the raw integers
+from frame 0.
 
 ```js
-// example values from the spec:
-const SPAWN_MS = 600                    // spawn_interval_ms
-const MAX_ACTIVE = 8                    // max_concurrent
-const ESCALATION = 1.55                 // escalation_per_min (multiplier/min)
-const JITTER_PCT = 30                   // randomness_pct
+// Steady-state values from CLAUDE.md "AUDIO DNA":
+const SPAWN_MS_STEADY = 600              // spawn_interval_ms
+const MAX_ACTIVE_STEADY = 8              // max_concurrent
+const JITTER_PCT_STEADY = 30             // randomness_pct
+const ESCALATION = 1.55                  // escalation_per_min (Phase 3 only)
 
-let nextSpawn = performance.now() + SPAWN_MS
-let intervalMs = SPAWN_MS
-function maybeSpawn(now){
-  if (now < nextSpawn || entities.length >= MAX_ACTIVE) return
-  entities.push(makeEntity())
-  // jitter the NEXT interval ±JITTER_PCT
-  const jitter = (Math.random()*2 - 1) * JITTER_PCT / 100
-  nextSpawn = now + intervalMs * (1 + jitter)
+// PHASE 1 — warm-up: slow it WAY down so the first 20 s is winnable.
+const SPAWN_MS_WARM = SPAWN_MS_STEADY * 2.0
+const MAX_ACTIVE_WARM = Math.max(2, Math.ceil(MAX_ACTIVE_STEADY * 0.5))
+const JITTER_PCT_WARM = Math.round(JITTER_PCT_STEADY * 0.3)
+
+const t0 = performance.now()
+function elapsedS(now){ return (now - t0) / 1000 }
+
+function currentPacing(now){
+  const s = elapsedS(now)
+  if (s < 20){
+    // Warm-up — easy on purpose
+    return { spawnMs: SPAWN_MS_WARM, maxActive: MAX_ACTIVE_WARM, jitter: JITTER_PCT_WARM }
+  }
+  if (s < 30){
+    // Linear ramp warm → standard over 10 s (the spec's escalation_moment
+    // banner fires once when the ramp begins at t=20s)
+    const k = (s - 20) / 10
+    return {
+      spawnMs:   SPAWN_MS_WARM + (SPAWN_MS_STEADY - SPAWN_MS_WARM) * k,
+      maxActive: Math.round(MAX_ACTIVE_WARM + (MAX_ACTIVE_STEADY - MAX_ACTIVE_WARM) * k),
+      jitter:    JITTER_PCT_WARM + (JITTER_PCT_STEADY - JITTER_PCT_WARM) * k,
+    }
+  }
+  if (s < 60){
+    return { spawnMs: SPAWN_MS_STEADY, maxActive: MAX_ACTIVE_STEADY, jitter: JITTER_PCT_STEADY }
+  }
+  // Phase 3 — apply escalation_per_min on top of steady
+  const minutesPast = (s - 60) / 60
+  const factor = Math.pow(ESCALATION, minutesPast)
+  return {
+    spawnMs:   Math.max(120, SPAWN_MS_STEADY / factor),
+    maxActive: Math.min(20, Math.round(MAX_ACTIVE_STEADY * Math.min(2, factor))),
+    jitter:    JITTER_PCT_STEADY,
+  }
 }
-// minute-by-minute escalation:
-setInterval(() => { intervalMs = Math.max(120, intervalMs / ESCALATION) }, 60_000)
+
+let nextSpawn = performance.now() + SPAWN_MS_WARM
+function maybeSpawn(now){
+  const { spawnMs, maxActive, jitter } = currentPacing(now)
+  if (now < nextSpawn || entities.length >= maxActive) return
+  entities.push(makeEntity())
+  const j = (Math.random()*2 - 1) * jitter / 100
+  nextSpawn = now + spawnMs * (1 + j)
+}
+
+// Fire the spec's escalation_moment banner once at t=20s (warm → standard
+// handoff). Optionally fire again at t=60s (standard → pressure).
+let warmupBannerFired = false, pressureBannerFired = false
+function maybeFirePhaseBanner(now){
+  const s = elapsedS(now)
+  if (!warmupBannerFired && s >= 20){
+    escalate('WAVE 2 / 第二波')   // or whatever the spec says
+    warmupBannerFired = true
+  }
+  if (!pressureBannerFired && s >= 60){
+    escalate('+SPEED / 加速')
+    pressureBannerFired = true
+  }
+}
 ```
+
+**Why this matters:** dropping a first-time player straight into steady-state
+pacing feels punishing and many quit before the 20 s mark. The warm-up gives
+them a couple of free wins, the WAVE 2 banner makes the difficulty step
+feel earned, and the steady-state pacing then lands with weight rather than
+overwhelming.
 
 ---
 

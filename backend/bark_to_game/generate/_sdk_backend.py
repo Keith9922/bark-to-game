@@ -60,41 +60,56 @@ Read ./CLAUDE.md in the current directory, then write a single self-contained
 
 ═══════ BILINGUAL RULES SCREEN (required, first-open only) ═══════
 
-10. - Heading: a short title line (English + 中文).
-    - Three sections, EACH with both 中文 and English copy stacked:
-        · GOAL / 目標 — how to win, in one sentence
+10. - Heading: a short title line (English + 简体中文).
+    - Three sections, EACH with both 简体中文 and English copy stacked:
+        · GOAL / 目标 — how to win, in one sentence
         · CONTROLS / 操作 — exact buttons / keys / taps / swipes for desktop AND mobile
         · RULES / 玩法 — scoring, penalties, special events, time limits — 2-4 bullets
-    - Chinese half may use Traditional selectively. English half stands alone.
-    - Dismiss the rules with the same tap/click/Enter that starts play.
+    - **Chinese MUST be Simplified Chinese (简体中文) only — never Traditional
+      (繁體). Avoid chars like 繁體 / 點擊 / 開始 / 來; use 简体 / 点击 / 开始 / 来.**
+    - English stands alone. Dismiss the rules with the same tap/click/Enter
+      that starts play.
 
 ═══════ FIRST-FIVE-SECONDS RULE (the playability bar) ═══════
 
 11. After the rules card is dismissed, the first 5 seconds of play MUST:
     a. Show the first interactive element with a visible affordance — pulsing
-       ring, hand-cursor wiggle, arrow, "TAP HERE" caption, or demo blip.
+       ring, hand-cursor wiggle, arrow, "TAP HERE / 点这里" caption, or demo blip.
        The affordance fades the moment the player performs the first action.
     b. The HUD is permanently visible — a thin strip with score / lives /
        progress at top OR bottom, plus a one-line control hint
-       (e.g. "← →  swipe / 滑動 ←→"). Controls are NOT buried in a one-shot
+       (e.g. "← →  swipe / 滑动 ←→"). Controls are NOT buried in a one-shot
        rules card; they remain on-screen during play.
     c. No silent waits >2 s. Spawn something or animate an idle hint so the
        player knows the game is alive.
 
-═══════ AUDIO DNA BINDING (required) ═══════
+═══════ AUDIO DNA BINDING (steady-state) ═══════
 
-12. The CLAUDE.md spec includes an "AUDIO DNA" block with concrete integers
-    (tempo / spawn_interval_ms / max_concurrent / escalation_per_min /
-     randomness_pct). USE THESE NUMBERS LITERALLY — do not guess.
+12. The CLAUDE.md spec's "AUDIO DNA" block (tempo / spawn_interval_ms /
+    max_concurrent / escalation_per_min / randomness_pct) describes this
+    game's eventual STEADY-STATE pacing (after the warm-up ends, see §13).
+    USE THESE NUMBERS LITERALLY — do not guess.
+
+═══════ DIFFICULTY CURVE — EASY → MEDIUM → HARD (required) ═══════
+
+13. **First 20 seconds MUST be obviously easier than steady-state.** Three phases:
+      • PHASE 1 — Warm-up (0–20 s): spawn_interval_ms × 2.0,
+        max_concurrent × 0.5, randomness_pct × 0.3. Easy / forgiving / obvious.
+      • PHASE 2 — Standard (20–60 s): ramp linearly to AUDIO DNA values over
+        10 s. Steady-state pressure.
+      • PHASE 3 — Pressure (60 s+): apply escalation_per_min on top of standard.
+
+    At PHASE 2 onset, fire the spec's escalation_moment as a visible cue:
+    flash a brief banner ("WAVE 2 / 第二波" etc.) + a synth sting. Optional
+    second cue at PHASE 3.
 
 ═══════ REPLAYABILITY JUICE (required) ═══════
 
-13. - Implement the spec's escalation_moment literally: when it triggers,
-      flash a brief banner ("WAVE 2 / 第二波" etc.) plus a synth sting.
-    - On every meaningful event (score, miss, win, fail), trigger a quick
+14. - On every meaningful event (score, miss, win, fail), trigger a quick
       visual + audio cue (screen flash / shake / particle / chord).
-    - The fail/win screen invites the user back with both 中文 ("再來一次")
-      AND English ("Tap to replay"), and surfaces the spec's replay_hook.
+    - The fail/win screen invites the user back with both 简体中文
+      ("再来一次") AND English ("Tap to replay"), and surfaces the spec's
+      replay_hook.
 
 Use Write tool. Do not use Bash, Read, or Edit.
 """
