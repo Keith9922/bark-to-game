@@ -114,6 +114,7 @@ async def _run_job(job: JobState, req: GenerateRequest) -> None:
             concept=req.concept.model_dump(),
             style_triplet_summary=_style_summary(req),
             visual_recipe_name=req.visual_recipe,
+            game_params=req.game_params.model_dump(),
             on_start=lambda cwd: _remember_cwd(job, cwd),
             publish=job.publish,
         )

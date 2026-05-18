@@ -2,51 +2,109 @@
   {
     "name": "catch",
     "description": "Player catches falling/incoming objects to score; missed objects penalise.",
-    "input": "left/right movement"
+    "input": "left/right movement",
+    "core_loop": "Move horizontally to intercept descending items; build a streak for bonus."
   },
   {
     "name": "dodge",
     "description": "Player avoids incoming threats while moving toward a goal.",
-    "input": "directional movement"
+    "input": "directional movement",
+    "core_loop": "Read incoming trajectories; thread through gaps; survive long enough to escalate."
   },
   {
     "name": "rhythm",
     "description": "Player times button presses to incoming visual or audio beats.",
-    "input": "timed taps"
+    "input": "timed taps",
+    "core_loop": "Hit the strike window on each beat; missing breaks the combo; speeds up over time."
   },
   {
     "name": "matching",
     "description": "Player pairs or aligns objects by colour/shape/sound.",
-    "input": "selection and confirm"
+    "input": "selection and confirm",
+    "core_loop": "Spot the pair before the row scrolls offscreen; chain matches for multiplier."
   },
   {
     "name": "stacking",
     "description": "Player drops blocks/objects to build the tallest stable structure.",
-    "input": "placement timing"
+    "input": "placement timing",
+    "core_loop": "Time the drop on a swinging crane; misaligned stacks shrink; tower wobbles harder as it grows."
   },
   {
     "name": "tracing",
     "description": "Player follows a path on screen without crossing boundaries.",
-    "input": "continuous pointer movement"
+    "input": "continuous pointer movement",
+    "core_loop": "Hold the line through curves and pinch-points; speed required rises with each lap."
   },
   {
     "name": "memorize",
     "description": "Player observes a sequence then repeats it from memory.",
-    "input": "ordered selection"
+    "input": "ordered selection",
+    "core_loop": "Watch the flash sequence; replay it back; sequence grows by one each round."
   },
   {
     "name": "herding",
     "description": "Player guides multiple semi-autonomous entities into a goal zone.",
-    "input": "directional nudging"
+    "input": "directional nudging",
+    "core_loop": "Sweep flock toward the pen; strays multiply if ignored; timer per wave."
   },
   {
     "name": "balancing",
     "description": "Player keeps a wobbling object/character centred as conditions change.",
-    "input": "fine continuous control"
+    "input": "fine continuous control",
+    "core_loop": "Counter-steer against shifting tilt; gusts intensify; survive set duration per round."
   },
   {
     "name": "sorting",
     "description": "Player categorises incoming objects into correct bins before they pile up.",
-    "input": "directional throw"
+    "input": "directional throw",
+    "core_loop": "Identify category fast; throw to correct bin; misfires raise the spawn rate."
+  },
+  {
+    "name": "chase",
+    "description": "Player actively pursues a moving target that evades; closing distance is the win condition.",
+    "input": "directional movement with sprint",
+    "core_loop": "Predict the target's next juke; tag-distance shrinks the timer; target speeds up between rounds."
+  },
+  {
+    "name": "whack",
+    "description": "Targets briefly surface at random positions; player taps them before they retreat.",
+    "input": "fast taps on revealed targets",
+    "core_loop": "React to spawn locations; reveal window narrows each wave; combo bonus for back-to-back hits."
+  },
+  {
+    "name": "rotation",
+    "description": "Player rotates the playfield, a grid, or a piece to align falling/incoming elements.",
+    "input": "rotate left/right (Q/E or swipe)",
+    "core_loop": "Anticipate where the next piece needs to land; pre-rotate before it locks in; speeds up."
+  },
+  {
+    "name": "drawing",
+    "description": "Player traces shapes or glyphs the screen demands within a time budget.",
+    "input": "freeform pointer stroke",
+    "core_loop": "Reproduce the shown glyph quickly and accurately; harder glyphs each round; timer shrinks."
+  },
+  {
+    "name": "charge_release",
+    "description": "Player holds to charge power then releases for a precision shot; hold too long and the charge overflows.",
+    "input": "press-and-hold + release",
+    "core_loop": "Read the target distance; release at the right charge band; band narrows as the round progresses."
+  },
+  {
+    "name": "routing",
+    "description": "Player lays or rotates path segments so a flow reaches the goal before it overflows.",
+    "input": "tap-to-place / tap-to-rotate tiles",
+    "core_loop": "Build the path under flow pressure; branching demands appear; overflow loses lives."
+  },
+  {
+    "name": "echo",
+    "description": "Player listens to/watches a pattern and reproduces it on a fretboard / pad / grid.",
+    "input": "ordered taps on labelled cells",
+    "core_loop": "Mimic the call exactly; one wrong cell = strike; patterns grow in length and tempo."
+  },
+  {
+    "name": "deflect",
+    "description": "Player aims a bouncer to send incoming objects back at sources or into goal zones.",
+    "input": "aim + click/tap to deflect",
+    "core_loop": "Aim deflection direction; chain ricochets for multipliers; missed objects drain shield."
   }
 ]

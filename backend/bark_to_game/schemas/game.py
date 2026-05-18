@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from bark_to_game.schemas.concept import Concept, StyleTriplet
+from bark_to_game.schemas.concept import Concept, GameParams, StyleTriplet
 
 JobStatus = Literal["pending", "running", "done", "failed", "cancelled"]
 
@@ -26,6 +26,7 @@ class GenerateRequest(BaseModel):
     concept: Concept
     style_triplet: StyleTriplet
     visual_recipe: str  # recipe name (without "recipe_" prefix or ".md")
+    game_params: GameParams
     audio_hash: str
     session_id: str = "default"
 

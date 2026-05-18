@@ -34,13 +34,17 @@ from bark_to_game.schemas.game import JobEvent
 IDLE_TIMEOUT_S = 120.0
 
 SYSTEM_PROMPT = """\
-You are an expert HTML5/Canvas game developer.
+You are an expert HTML5/Canvas game developer who ships immediately-playable
+games. Your single most important job: **a first-time player, on either
+desktop or mobile, must figure out how to play within 5 seconds of the game
+starting — without reading the rules card.**
 
-Your job: read ./CLAUDE.md in the current directory, then write a single
-self-contained ./game.html implementing the game concept exactly. Also write a
-short ./SUMMARY.md describing what you built (1-3 lines).
+Read ./CLAUDE.md in the current directory, then write a single self-contained
+./game.html implementing the game spec exactly. Also write a short
+./SUMMARY.md (1-3 lines).
 
-Non-negotiable constraints:
+═══════ TECHNICAL ═══════
+
 1. ONE self-contained game.html. All <style> and <script> inline.
 2. No external CDNs, no external libraries, no module imports.
 3. Canvas 2D only (no WebGL, no SVG).
@@ -48,30 +52,49 @@ Non-negotiable constraints:
 5. Input: WASD/arrow keys + click/touch. Must work on mobile (touch + responsive).
 6. Implement: title screen → bilingual rules overlay → gameplay → win/lose state
    → restart on click/tap/Enter.
-7. Follow the VISUAL RECIPE in CLAUDE.md literally: palette hex codes,
+7. Follow the VISUAL RECIPE in CLAUDE.md literally — palette hex codes,
    typography, motion vocabulary, audio cues, DO-NOTs. Do not deviate.
 8. Adapt patterns from the PLAYBOOK section — do not paste verbatim if they
    conflict with the recipe.
 9. Playable round must complete in ~30-60 s and be clearly winnable / losable.
 
-10. **Bilingual in-game rules screen (REQUIRED, on the title or first-open):**
-    - Heading: a short title line (English + 中文).
+═══════ BILINGUAL RULES SCREEN (required, first-open only) ═══════
+
+10. - Heading: a short title line (English + 中文).
     - Three sections, EACH with both 中文 and English copy stacked:
         · GOAL / 目標 — how to win, in one sentence
         · CONTROLS / 操作 — exact buttons / keys / taps / swipes for desktop AND mobile
         · RULES / 玩法 — scoring, penalties, special events, time limits — 2-4 bullets
-    - The Chinese half MAY use Traditional Chinese (繁體) selectively for
-      headings or single-word labels. Body copy can be Simplified.
-    - English half must be clear and complete even to a reader who skips Chinese.
+    - Chinese half may use Traditional selectively. English half stands alone.
     - Dismiss the rules with the same tap/click/Enter that starts play.
 
-11. **Replayability juice (REQUIRED):**
-    - Difficulty ramps within a single round — at least one visible
-      escalation moment (speed-up, denser hazards, new pattern, etc).
+═══════ FIRST-FIVE-SECONDS RULE (the playability bar) ═══════
+
+11. After the rules card is dismissed, the first 5 seconds of play MUST:
+    a. Show the first interactive element with a visible affordance — pulsing
+       ring, hand-cursor wiggle, arrow, "TAP HERE" caption, or demo blip.
+       The affordance fades the moment the player performs the first action.
+    b. The HUD is permanently visible — a thin strip with score / lives /
+       progress at top OR bottom, plus a one-line control hint
+       (e.g. "← →  swipe / 滑動 ←→"). Controls are NOT buried in a one-shot
+       rules card; they remain on-screen during play.
+    c. No silent waits >2 s. Spawn something or animate an idle hint so the
+       player knows the game is alive.
+
+═══════ AUDIO DNA BINDING (required) ═══════
+
+12. The CLAUDE.md spec includes an "AUDIO DNA" block with concrete integers
+    (tempo / spawn_interval_ms / max_concurrent / escalation_per_min /
+     randomness_pct). USE THESE NUMBERS LITERALLY — do not guess.
+
+═══════ REPLAYABILITY JUICE (required) ═══════
+
+13. - Implement the spec's escalation_moment literally: when it triggers,
+      flash a brief banner ("WAVE 2 / 第二波" etc.) plus a synth sting.
     - On every meaningful event (score, miss, win, fail), trigger a quick
       visual + audio cue (screen flash / shake / particle / chord).
-    - The fail screen invites the user back: include both a 中文 prompt
-      ("再來一次 / 再来一次") AND an English one ("Tap to replay").
+    - The fail/win screen invites the user back with both 中文 ("再來一次")
+      AND English ("Tap to replay"), and surfaces the spec's replay_hook.
 
 Use Write tool. Do not use Bash, Read, or Edit.
 """
@@ -187,13 +210,14 @@ async def generate_via_sdk(
     style_triplet_summary: str,
     visual_recipe_name: str,
     *,
+    game_params: dict[str, Any] | None = None,
     on_start: Callable[[str], None] | None = None,
     publish: Callable[[JobEvent], None] | None = None,
 ) -> GenerationResult:
     from claude_agent_sdk import ClaudeAgentOptions, query
 
     game_id, game_dir, _claude_md = new_game_dir(
-        concept, style_triplet_summary, visual_recipe_name
+        concept, style_triplet_summary, visual_recipe_name, game_params
     )
     if on_start is not None:
         on_start(str(game_dir))

@@ -31,6 +31,16 @@ _STYLE_TRIPLET = {
     "mechanic": {"name": "catch", "description": "y"},
     "mood": {"name": "serene", "description": "z"},
 }
+_GAME_PARAMS = {
+    "tempo": "medium",
+    "density": "moderate",
+    "intensity": "firm",
+    "variability": "shifting",
+    "spawn_interval_ms": 1000,
+    "max_concurrent": 8,
+    "escalation_per_min": 1.35,
+    "randomness_pct": 30,
+}
 
 
 def _request_body(visual_recipe: str = "pixel_crt") -> dict[str, Any]:
@@ -38,6 +48,7 @@ def _request_body(visual_recipe: str = "pixel_crt") -> dict[str, Any]:
         "concept": _CONCEPT,
         "style_triplet": _STYLE_TRIPLET,
         "visual_recipe": visual_recipe,
+        "game_params": _GAME_PARAMS,
         "audio_hash": "abcd1234abcd1234",
         "session_id": "route-test",
     }
