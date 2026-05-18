@@ -58,6 +58,27 @@ Read ./CLAUDE.md in the current directory, then write a single self-contained
    conflict with the recipe.
 9. Playable round must complete in ~30-60 s and be clearly winnable / losable.
 
+═══════ MOBILE-FIRST (required) ═══════
+
+9a. Design for ONE THUMB, portrait, safe-area aware:
+    - Tap targets ≥ 44×44 CSS px. No hover / right-click / multi-touch needed.
+    - No drag-precision required. Primary controls in bottom 60% of screen.
+    - Use `touch-action: manipulation` on the canvas. Respect
+      `env(safe-area-inset-*)`. If the mechanic uses keys, ALSO provide a
+      visible touch alternative (dpad / swipe zone / big action button).
+
+═══════ UI POLISH (required) ═══════
+
+9b. Within the visual recipe's palette / motion vocabulary:
+    - One dominant element per screen; supporting elements ≤70% size or
+      ≤60% alpha. Layered shadows / glow for depth.
+    - Interactive elements breathe (1.00 ↔ 1.05 over 1.2 s) when idle; tap
+      = 60 ms press-down + snap back.
+    - 8-px spacing grid; ≥16 px body / ≥22 px hero text; bilingual labels
+      align baselines.
+    - Distinct pressed / disabled / active states. No emoji as primary UI
+      icon (draw shapes in Canvas).
+
 ═══════ BILINGUAL RULES SCREEN (required, first-open only) ═══════
 
 10. - Heading: a short title line (English + 简体中文).

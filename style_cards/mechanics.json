@@ -106,5 +106,41 @@
     "description": "Player aims a bouncer to send incoming objects back at sources or into goal zones.",
     "input": "aim + click/tap to deflect",
     "core_loop": "Aim deflection direction; chain ricochets for multipliers; missed objects drain shield."
+  },
+  {
+    "name": "link_pair",
+    "description": "Lianliankan / link-and-clear: tap two identical tiles connectable by a path with ≤2 right-angle turns to clear them. Speeds up as the board thins.",
+    "input": "tap two tiles in sequence (no drag required)",
+    "core_loop": "Scan the grid for a clearable pair; tap-tap to vanish them; shorter remaining time / fewer hints raise tension."
+  },
+  {
+    "name": "snake",
+    "description": "Snake / 贪吃蛇: a growing chain follows the head, eats targets, dies on self/wall collision. Length is both progress and threat.",
+    "input": "swipe direction (mobile) or arrow keys (desktop); single-tap toggles 90° turn",
+    "core_loop": "Steer head toward food; longer body = harder navigation; speed ramps with length."
+  },
+  {
+    "name": "sokoban",
+    "description": "Sokoban / 推箱子: push (don't pull) crates onto goal tiles in a tight grid; each push must be reversible by replay-think. Compact discrete-step puzzle.",
+    "input": "directional tap (4 dpad zones on mobile) or arrow keys (desktop); undo button required",
+    "core_loop": "Plan a push order without trapping a crate against a wall; clear all goals to advance to a denser level."
+  },
+  {
+    "name": "runner",
+    "description": "Endless runner / 火柴人快跑: player auto-runs forward; sole input is jump (or jump + slide). Obstacles speed up, gaps widen.",
+    "input": "tap-anywhere to jump (long-press for higher jump); swipe-down to slide",
+    "core_loop": "Read upcoming obstacle, tap at the right pixel-distance to clear it; distance / coins are the score."
+  },
+  {
+    "name": "jumper",
+    "description": "Bounce-jump platformer / 蹦蹦跳跳: player bounces continuously, steered left/right, must land on rising or moving platforms without falling off the bottom.",
+    "input": "tilt left/right via swipe-anywhere (mobile) or A/D / ←/→ (desktop)",
+    "core_loop": "Steer mid-air bounce to land on next platform; missed landing = fall + lose a life; platforms get sparser or move faster."
+  },
+  {
+    "name": "roguelike_dive",
+    "description": "Roguelike-lite micro-dungeon: descend short floors of a procedural grid; pick up cards/items that mutate next floor's rules; permadeath but each run unlocks meta-progression hints.",
+    "input": "directional tap to move to adjacent cell; long-press for item-use; one main attack button",
+    "core_loop": "Walk → engage 1-tile enemy → loot → choose a card (3 picks) → descend; deeper floors compose nastier rules."
   }
 ]

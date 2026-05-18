@@ -121,8 +121,12 @@ axes** — re-skinning is forbidden and wastes a slot:
                                 vehicle vs disembodied force vs swarm of N)
   • INPUT MODALITY              (single-tap rhythm vs swipe arc vs hold+release
                                 vs drag-and-drop vs free-stroke draw)
+  • CONTROL SURFACE             (1-button-only vs dpad vs swipe-anywhere vs
+                                tap-target vs tilt-axis vs gesture-combo).
+                                Lean toward fewer simultaneous inputs — most
+                                players are on phone, one thumb.
   • WIN FRAMING                 (score-attack vs survive-timer vs collect-set
-                                vs reach-distance vs solve-puzzle)
+                                vs reach-distance vs solve-puzzle vs run-clear)
   • VISUAL COMPOSITION          (centred & framed vs full-bleed vs vignette
                                 vs split-screen vs minimalist with negative space)
   • EMOTIONAL ARC               (tense crescendo vs comic relief vs solemn
@@ -136,6 +140,15 @@ the goal is that the 5 candidates feel like they came from 5 different designers
 
 DO NOT default to "catch / sort / match falling objects" when the mechanic is
 something else. The mechanic's `core_loop` IS the verb; honour it literally.
+
+═══════ POLISH BAR (every concept must clear it) ═══════
+
+The generator will be told to ship premium UI (mobile-first, 44px taps,
+layered depth, breathing micro-motion, 8-px spacing, distinct button states).
+Your concept must MAKE THAT POSSIBLE — favour clear hero elements, generous
+negative space, and one dominant action over busy grids of 20 small targets.
+If your concept would demand hover, multi-touch, or precise drawing, REDESIGN
+it for thumb-on-phone first.
 """
 
 
