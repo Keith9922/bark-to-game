@@ -258,6 +258,31 @@ them a couple of free wins, the WAVE 2 banner makes the difficulty step
 feel earned, and the steady-state pacing then lands with weight rather than
 overwhelming.
 
+## Round-1 floor (REQUIRED for wave / round / level games)
+
+Pacing knobs alone are not enough for round-based games — the QUOTA needs to
+drop too. Concrete rules:
+
+```js
+// Wave-based example: spec says round 1 should be obviously winnable.
+// At MOST half the steady-state quantity in round 1.
+const ROUND_QUOTA_STEADY = 6       // e.g. need 6 catches per round at steady state
+const ROUND_QUOTA_ROUND1 = Math.max(1, Math.floor(ROUND_QUOTA_STEADY / 2))  // 3
+
+// And mute the fail path entirely for the first 20 s — even if the player
+// would lose, treat strikes as ignorable feedback only:
+let strikes = 0
+function onMiss(){
+  strikes++
+  if (elapsedS(performance.now()) < 20) return       // no-fail during warm-up
+  if (strikes >= 3) lose()
+}
+```
+
+A first-time player MUST reach "Round 1 cleared" within ~30 s of play, with
+zero strikes. If they can't, the round-1 quota / spawn-rate / threat level
+needs to drop further — adjust until tested-on-a-friend it's an easy "I won".
+
 ---
 
 # Common mechanics — sketches to adapt

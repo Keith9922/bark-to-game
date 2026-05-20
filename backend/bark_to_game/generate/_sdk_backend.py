@@ -113,16 +113,27 @@ Read ./CLAUDE.md in the current directory, then write a single self-contained
 
 ═══════ DIFFICULTY CURVE — EASY → MEDIUM → HARD (required) ═══════
 
-13. **First 20 seconds MUST be obviously easier than steady-state.** Three phases:
-      • PHASE 1 — Warm-up (0–20 s): spawn_interval_ms × 2.0,
-        max_concurrent × 0.5, randomness_pct × 0.3. Easy / forgiving / obvious.
-      • PHASE 2 — Standard (20–60 s): ramp linearly to AUDIO DNA values over
-        10 s. Steady-state pressure.
-      • PHASE 3 — Pressure (60 s+): apply escalation_per_min on top of standard.
+13. **First round MUST be obviously winnable by a first-time player in ≤ 30 s.**
 
-    At PHASE 2 onset, fire the spec's escalation_moment as a visible cue:
-    flash a brief banner ("WAVE 2 / 第二波" etc.) + a synth sting. Optional
-    second cue at PHASE 3.
+    a. First-round hard floors (OVERRIDE concept text if they clash):
+       - At most HALF the steady-state quantity. "Three ghosts" → spawn 1 in
+         round 1. "Twelve to win" → require 3 for round 1.
+       - **No fail can trigger in the first 20 s.** Mute lose() until 20 s
+         elapsed; ignore strikes accumulated during warm-up.
+       - Round-1 win quota: reachable in ≤ 30 s of normal play.
+       - Movement / spawn × 0.5; auto-enemy aggression × 0.5; the opening
+         must FEEL slow.
+
+    b. Curve:
+       • PHASE 1 — Warm-up (round 1 / 0–20 s): rules in (a). No-fail.
+       • PHASE 2 — Standard (rounds 2–3 / 20–60 s): ramp to AUDIO DNA over 10 s.
+       • PHASE 3 — Pressure (round 4+ / 60 s+): apply escalation_per_min.
+
+    c. WIN reachable in 60–90 s of decent play. "Clear N waves" → N is 2–4,
+       NOT 5+. Win that takes 3+ minutes = nobody sees it.
+
+    At PHASE 2 onset, fire escalation_moment: banner ("WAVE 2 / 第二波")
+    + synth sting. Optional second cue at PHASE 3.
 
 ═══════ REPLAYABILITY JUICE (required) ═══════
 

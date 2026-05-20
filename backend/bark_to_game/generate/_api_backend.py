@@ -147,23 +147,43 @@ self-contained HTML file. Non-negotiable constraints:
 
 ═══════ DIFFICULTY CURVE — EASY → MEDIUM → HARD (required) ═══════
 
-13. **The first 20 seconds MUST be obviously easier than steady-state**, so a
-    first-time player gets early wins and feels in control before things ramp.
-    This is the difference between "I'll play one more round" and "I quit".
+13. **The FIRST ROUND must be obviously winnable by a first-time player who
+    has never seen the game before.** "Round 1 cleared" is the single most
+    important moment in the whole session — if the player can't reach it
+    inside ~30 s of casual play, the design has failed.
 
-    Implement a three-phase curve:
-      • **PHASE 1 — Warm-up (0–20 s):** slow it WAY down.
-        spawn_interval_ms × 2.0, max_concurrent × 0.5,
-        randomness_pct × 0.3.  Easy / forgiving / obvious.
-      • **PHASE 2 — Standard (20–60 s):** ramp linearly to AUDIO DNA's
-        spawn_interval_ms / max_concurrent over 10 s. Steady-state pressure.
-      • **PHASE 3 — Pressure (60 s+):** apply escalation_per_min on top of
-        standard. Real challenge, this is where strong players show.
+    a. **First-round difficulty floor (HARD RULES, override the concept text
+       if the two clash):**
+       - At most **HALF** the steady-state quantity (sprites / blocks /
+         enemies / cards / cells). If the concept text says "three ghosts",
+         spawn ONE in round 1, scale up later. If it says "twelve to win",
+         require THREE for round 1, scale up.
+       - No fail condition can trigger in the first 20 s — the warm-up is a
+         no-fail tutorial. Track strikes / lives / breaches, but mute the
+         lose() call until 20 s have elapsed. If the player would have lost
+         during warm-up, just reset that strike and let them play on.
+       - The win condition for the FIRST ROUND must be reachable in ≤ 30 s
+         of normal play. Scale quotas accordingly — better to start with a
+         "trivial" round and ramp than to gate everyone behind a hard wall.
+       - Movement / spawn speeds: spawn_interval_ms × 2.0, max_concurrent
+         × 0.5, randomness_pct × 0.3, and any "auto enemy" wander/aggression
+         × 0.5 too. The opening must FEEL slow.
 
-    When PHASE 2 begins, fire the spec's **escalation_moment** as the
-    visible "now it gets real" cue — flash a brief banner ("WAVE 2 / 第二波",
-    "+SPEED", etc.) plus a synth sting. The same kind of cue can fire again
-    at PHASE 3 if there is room.
+    b. **Full curve** (round-based games map "round N" to time bucket):
+       • PHASE 1 — Warm-up (round 1, ~0–20 s): rules in (a). No-fail.
+       • PHASE 2 — Standard (rounds 2–3, ~20–60 s): ramp linearly to AUDIO
+         DNA steady-state pacing over 10 s. Failure now possible.
+       • PHASE 3 — Pressure (round 4+, 60 s+): apply escalation_per_min on
+         top of standard.
+
+    c. **WIN must be reachable in 60–90 s of decent play.** If your concept
+       wants "clear N waves to win", N should be 2–4, NOT 5+. If it's score-
+       attack, the win threshold should fall in that time. A win that takes
+       3+ minutes is worse than no win because nobody sees it.
+
+    When PHASE 2 begins, fire the spec's **escalation_moment** as the visible
+    "now it gets real" cue — brief banner ("WAVE 2 / 第二波", "+SPEED" etc.)
+    plus a synth sting. Optional second cue at PHASE 3.
 
 ═══════ REPLAYABILITY JUICE (required) ═══════
 

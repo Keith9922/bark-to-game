@@ -50,17 +50,28 @@ You will be given:
                           tells the player what to touch first — WITHOUT
                           reading the rules screen
   5. EASY START → HARD END: describe a 3-phase difficulty curve —
-                          • warm-up (0–20 s): obviously easier than spec
+                          • warm-up (round 1 / 0–20 s): a FIRST-TIME player
+                            without instructions can clear it in ≤ 30 s.
+                            No-fail zone (lose() is muted in this window).
+                            Use AT MOST HALF the steady-state quantity —
+                            if your tagline says "three ghosts", round 1
+                            has ONE; the rest scale in later rounds.
                           • standard (20–60 s): match AUDIO DNA pacing
                           • pressure (60 s+): apply escalation_per_min
-                          The first 20 s should give the player early wins
-                          on purpose. They earn the difficulty.
+                          The goal of the warm-up is the player's FIRST WIN
+                          MOMENT — earned in under 30 s. Without it, the
+                          rest of the game doesn't get a chance.
   6. ESCALATION MOMENT: at the warm-up → standard handoff (~20 s), the
                        explicit visible "now it gets real" event — banner,
                        speed-up, new color, board flip, etc.
   7. REPLAY HOOK:   why does the player want a second run?
                     (chase a score / unlock a variant / beat a personal time /
                      "I almost had it" near-miss)
+
+  ⚠ WIN BUDGET: a full win must be reachable in 60–90 s of decent play.
+    If your concept needs "clear N waves to win", N is 2–4. A 5-wave clear
+    or a 3-minute survive is bad design — players who never reach the
+    ending don't come back.
 
 ═══════ AUDIO DNA BINDING (steady-state, not opening 20 s) ═══════
 
