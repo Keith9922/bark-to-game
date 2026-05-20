@@ -230,8 +230,16 @@ async def _call_claude(system_prompt: str, user_prompt: str) -> str:
         "content-type": "application/json",
     }
 
+    # `httpx.AsyncHTTPTransport(retries=N)` retries ONLY on network-level
+    # failures (ConnectError / DNS / TLS handshake reset), not on HTTP status
+    # codes — exactly the transient class we hit in prod. Two extra attempts
+    # ~= 99% recovery without any user-visible delay; each TCP retry adds
+    # ~100 ms not the full _REQUEST_TIMEOUT_S, so the worst case is bounded.
+    transport = httpx.AsyncHTTPTransport(retries=2)
     try:
-        async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_S) as client:
+        async with httpx.AsyncClient(
+            timeout=_REQUEST_TIMEOUT_S, transport=transport
+        ) as client:
             resp = await client.post(
                 f"{settings.API_BASE_URL}/v1/messages", headers=headers, json=payload
             )
@@ -253,6 +261,15 @@ async def _call_claude(system_prompt: str, user_prompt: str) -> str:
             f"translate API timed out after {_REQUEST_TIMEOUT_S:.0f}s "
             f"({type(exc).__name__}); the upstream model didn't return in time. "
             f"Try again, or shorten the prompt."
+        ) from exc
+    except httpx.ConnectError as exc:
+        # ConnectError = TCP/TLS handshake failed mid-connect (proxy hiccup,
+        # DNS blip, TLS reset). Transport already retried 2× before we get
+        # here, so this is a sustained outage rather than a transient blip.
+        detail = str(exc) or type(exc).__name__
+        raise RuntimeError(
+            f"translate API unreachable (ConnectError after 3 attempts): "
+            f"{detail}. The upstream proxy may be down."
         ) from exc
 
     content = body.get("content") or []

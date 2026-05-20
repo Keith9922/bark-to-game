@@ -19,6 +19,9 @@ def _patch_client_with(monkeypatch: pytest.MonkeyPatch, handler: Any) -> None:
     transport = httpx.MockTransport(handler)
 
     def factory(**kw: Any) -> httpx.AsyncClient:
+        # Production code now passes its own retrying transport. Strip it and
+        # substitute the MockTransport so the handler controls the response.
+        kw.pop("transport", None)
         return _REAL_ASYNC_CLIENT(transport=transport, **kw)
 
     monkeypatch.setattr(httpx, "AsyncClient", factory)
@@ -157,4 +160,20 @@ async def test_call_claude_timeout_surfaces_informative_runtime_error(
 
     _patch_client_with(monkeypatch, handler)
     with pytest.raises(RuntimeError, match="timed out after .*s.*ReadTimeout"):
+        await engine._call_claude("s", "u")
+
+
+async def test_call_claude_connect_error_surfaces_informative_runtime_error(
+    monkeypatch: pytest.MonkeyPatch, patch_settings: None
+) -> None:
+    """Regression: aipaibox proxy occasionally RST-resets the TCP/TLS handshake
+    (seen in prod May-20 17:36 + 17:40 with `ConnectError`). The wrapper must
+    convert it into a RuntimeError mentioning the upstream is unreachable
+    rather than the bare 502 we used to surface."""
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection reset by peer")
+
+    _patch_client_with(monkeypatch, handler)
+    with pytest.raises(RuntimeError, match=r"unreachable.*ConnectError after \d+ attempts"):
         await engine._call_claude("s", "u")
