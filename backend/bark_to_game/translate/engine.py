@@ -23,6 +23,7 @@ What this layer adds beyond the LLM call:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from collections.abc import Iterable
@@ -206,18 +207,29 @@ def _derive_game_params(
     )
 
 
-async def _call_claude(system_prompt: str, user_prompt: str) -> str:
-    """Non-streaming Messages API call. Returns the concatenated assistant text.
+# HTTP status codes worth retrying. 502 = bad gateway, 503 = service
+# unavailable / "no available channel" from the aipaibox proxy (real prod
+# pattern: cheap-tier channels saturate for seconds at a time), 504 = upstream
+# timeout. None of these are caused by our payload, so a retry has a real
+# chance of succeeding within seconds.
+_RETRYABLE_STATUS = frozenset({502, 503, 504})
 
-    Raises:
-        RuntimeError: missing key, HTTP non-2xx, or unexpected response shape.
-        RateLimitedError: HTTP 429 from the proxy.
-    """
-    if not settings.API_KEY:
-        raise RuntimeError(
-            "BARK_API_KEY is not set. Set it in backend/.env before calling translate."
-        )
+# Backoff schedule between attempts (in seconds). Total max-wait = sum =
+# ~3.3 s before we give up and surface the error. Override at module-level
+# in tests for instant runs.
+_RETRY_BACKOFFS_S: tuple[float, ...] = (0.8, 2.5)
 
+
+class _TransientUpstreamError(Exception):
+    """Internal signal: upstream had a transient failure worth retrying."""
+
+    def __init__(self, message: str, *, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+async def _call_claude_once(system_prompt: str, user_prompt: str) -> str:
+    """Single attempt — see ``_call_claude`` for the retrying wrapper."""
     payload = {
         "model": settings.API_TRANSLATE_MODEL,
         "max_tokens": settings.API_TRANSLATE_MAX_OUTPUT_TOKENS,
@@ -231,10 +243,8 @@ async def _call_claude(system_prompt: str, user_prompt: str) -> str:
     }
 
     # `httpx.AsyncHTTPTransport(retries=N)` retries ONLY on network-level
-    # failures (ConnectError / DNS / TLS handshake reset), not on HTTP status
-    # codes — exactly the transient class we hit in prod. Two extra attempts
-    # ~= 99% recovery without any user-visible delay; each TCP retry adds
-    # ~100 ms not the full _REQUEST_TIMEOUT_S, so the worst case is bounded.
+    # failures (ConnectError / DNS / TLS reset), not on HTTP status codes.
+    # We add HTTP-status retry in the outer wrapper below.
     transport = httpx.AsyncHTTPTransport(retries=2)
     try:
         async with httpx.AsyncClient(
@@ -248,29 +258,27 @@ async def _call_claude(system_prompt: str, user_prompt: str) -> str:
                     f"translate API rate-limited (HTTP 429): {resp.text[:300]}",
                     resets_at=None,
                 )
+            if resp.status_code in _RETRYABLE_STATUS:
+                raise _TransientUpstreamError(
+                    f"HTTP {resp.status_code}: {resp.text[:200]}",
+                    status=resp.status_code,
+                )
             if resp.status_code >= 400:
                 raise RuntimeError(
                     f"translate API HTTP {resp.status_code}: {resp.text[:300]}"
                 )
             body = resp.json()
     except httpx.TimeoutException as exc:
-        # httpx.ReadTimeout / ConnectTimeout / etc. all have empty str() — wrap
-        # in a RuntimeError with the type + ceiling so the 502 message tells
-        # the user *why*, not just "translation failed:" with no detail.
         raise RuntimeError(
             f"translate API timed out after {_REQUEST_TIMEOUT_S:.0f}s "
             f"({type(exc).__name__}); the upstream model didn't return in time. "
             f"Try again, or shorten the prompt."
         ) from exc
     except httpx.ConnectError as exc:
-        # ConnectError = TCP/TLS handshake failed mid-connect (proxy hiccup,
-        # DNS blip, TLS reset). Transport already retried 2× before we get
-        # here, so this is a sustained outage rather than a transient blip.
+        # Transport-level retries (2×) already happened; treat as transient
+        # one more time so the outer wrapper gets a chance to space-and-retry.
         detail = str(exc) or type(exc).__name__
-        raise RuntimeError(
-            f"translate API unreachable (ConnectError after 3 attempts): "
-            f"{detail}. The upstream proxy may be down."
-        ) from exc
+        raise _TransientUpstreamError(f"ConnectError: {detail}") from exc
 
     content = body.get("content") or []
     text_parts = [
@@ -287,6 +295,46 @@ async def _call_claude(system_prompt: str, user_prompt: str) -> str:
             f"stop_reason={body.get('stop_reason')!r} body={str(body)[:300]}"
         )
     return "".join(text_parts)
+
+
+async def _call_claude(system_prompt: str, user_prompt: str) -> str:
+    """Resilient Messages API call. Retries on transient upstream failures.
+
+    Retried (1 initial attempt + up to ``len(_RETRY_BACKOFFS_S)`` more):
+      • httpx.ConnectError after transport's 2× network-layer retries
+      • HTTP 502 / 503 / 504 (e.g. aipaibox "no available channel" bursts)
+
+    NOT retried:
+      • httpx.TimeoutException — already waited the full ceiling, the user
+        is in real-time and another attempt would compound the wait
+      • 4xx (except 429 → RateLimitedError) — our payload is at fault
+      • Parse failures / empty 200 — content issue, retrying rarely helps
+    """
+    if not settings.API_KEY:
+        raise RuntimeError(
+            "BARK_API_KEY is not set. Set it in backend/.env before calling translate."
+        )
+
+    last_transient: _TransientUpstreamError | None = None
+    for attempt in range(1, len(_RETRY_BACKOFFS_S) + 2):
+        try:
+            return await _call_claude_once(system_prompt, user_prompt)
+        except _TransientUpstreamError as exc:
+            last_transient = exc
+            if attempt > len(_RETRY_BACKOFFS_S):
+                break  # budget exhausted, fall through to raise
+            delay = _RETRY_BACKOFFS_S[attempt - 1]
+            logger.warning(
+                f"translate: transient upstream failure on attempt {attempt} "
+                f"({exc}); retrying in {delay}s"
+            )
+            await asyncio.sleep(delay)
+
+    assert last_transient is not None
+    raise RuntimeError(
+        f"translate upstream busy after {len(_RETRY_BACKOFFS_S) + 1} attempts "
+        f"(last: {last_transient}). Try again in a few seconds."
+    ) from last_transient
 
 
 def parse_candidates(raw: str) -> list[Candidate]:
