@@ -53,9 +53,45 @@ def test_both_generator_prompts_require_three_phase_difficulty_curve() -> None:
         for t in ("20", "60"):
             assert t in sp, f"{name}: missing time marker '{t}'"
         # Multiplier hint for the warm-up easy-mode (must be visibly easier)
-        assert "× 2.0" in sp or "x 2.0" in sp, (
-            f"{name}: missing warm-up spawn × 2.0 hint"
+        assert "× 2.0" in sp or "x 2.0" in sp or "× 0.5" in sp, (
+            f"{name}: missing warm-up pacing multipliers"
         )
+
+
+def test_both_generator_prompts_carry_round_one_floor_rules() -> None:
+    """Regression for Neon Shepherd / 'wave 1 has 3 ghosts': prompts must
+    explicitly halve round-1 quota AND mute lose path in first 20 s AND
+    discourage 5+ wave wins."""
+    for name, sp in _BACKENDS:
+        # Halving quota (concept text may say 'three' / 'twelve' / etc.)
+        assert "HALF" in sp or "half" in sp, (
+            f"{name}: missing 'half the quantity for round 1' rule"
+        )
+        # First-round win reachable in <= 30s
+        assert "30 s" in sp or "30s" in sp, (
+            f"{name}: missing 30s round-1 win target"
+        )
+        # No-fail warm-up
+        nofail_markers = ("No-fail", "no-fail", "No fail", "no fail")
+        assert any(m in sp for m in nofail_markers), (
+            f"{name}: missing 'no-fail warm-up' rule"
+        )
+        # 2-4 round win, not 5+
+        assert "2–4" in sp or "2-4" in sp, (
+            f"{name}: missing 'win in 2-4 rounds' guidance"
+        )
+
+
+def test_translate_rubric_carries_round_one_win_floor() -> None:
+    """Concept design upstream of the generator must avoid 5+ wave wins,
+    3+ minute survives, or 'twelve to win' in round 1."""
+    from bark_to_game.translate import prompts
+    sp = prompts.SYSTEM_PROMPT
+    # "FIRST WIN MOMENT" may wrap across lines — match the start of the phrase.
+    assert "FIRST WIN" in sp or "first win" in sp.lower()
+    assert "HALF" in sp or "half" in sp
+    assert "WIN BUDGET" in sp or "win budget" in sp.lower()
+    assert "2–4" in sp or "2-4" in sp
 
 
 def test_both_generator_prompts_keep_first_five_seconds_rule() -> None:
