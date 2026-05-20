@@ -33,6 +33,8 @@ def patch_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "API_BASE_URL", "https://test.example.com")
     monkeypatch.setattr(settings, "API_TRANSLATE_MODEL", "claude-sonnet-4-6")
     monkeypatch.setattr(settings, "API_TRANSLATE_MAX_OUTPUT_TOKENS", 4096)
+    # Zero backoffs so retry tests don't sleep for seconds.
+    monkeypatch.setattr(engine, "_RETRY_BACKOFFS_S", (0.0, 0.0))
 
 
 async def test_call_claude_sends_correct_payload_and_returns_text(
@@ -163,17 +165,88 @@ async def test_call_claude_timeout_surfaces_informative_runtime_error(
         await engine._call_claude("s", "u")
 
 
-async def test_call_claude_connect_error_surfaces_informative_runtime_error(
+async def test_call_claude_connect_error_eventually_surfaces_after_retries(
     monkeypatch: pytest.MonkeyPatch, patch_settings: None
 ) -> None:
-    """Regression: aipaibox proxy occasionally RST-resets the TCP/TLS handshake
-    (seen in prod May-20 17:36 + 17:40 with `ConnectError`). The wrapper must
-    convert it into a RuntimeError mentioning the upstream is unreachable
-    rather than the bare 502 we used to surface."""
+    """Regression: aipaibox proxy occasionally RST-resets the TCP/TLS handshake.
+    After all retries (transport-level + wrapper-level) are exhausted, the
+    final RuntimeError must mention 'upstream busy' + how many attempts +
+    the ConnectError detail so it's actionable."""
 
     def handler(_request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection reset by peer")
 
     _patch_client_with(monkeypatch, handler)
-    with pytest.raises(RuntimeError, match=r"unreachable.*ConnectError after \d+ attempts"):
+    with pytest.raises(RuntimeError, match=r"upstream busy after \d+ attempts.*ConnectError"):
         await engine._call_claude("s", "u")
+
+
+async def test_call_claude_retries_on_503_then_succeeds(
+    monkeypatch: pytest.MonkeyPatch, patch_settings: None
+) -> None:
+    """Regression for the aipaibox 'No available channel' burst seen in prod
+    May-20: HTTP 503 from the proxy means a cheap-tier channel is saturated
+    for a few seconds. We must retry, not fail the user."""
+
+    call_count = {"n": 0}
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        call_count["n"] += 1
+        if call_count["n"] < 3:
+            return httpx.Response(503, text='{"error":{"message":"No available channel for model claude-sonnet-4-6"}}')
+        return httpx.Response(200, json={"content": [{"type": "text", "text": '{"candidates":[]}'}]})
+
+    _patch_client_with(monkeypatch, handler)
+    out = await engine._call_claude("s", "u")
+    assert out == '{"candidates":[]}'
+    assert call_count["n"] == 3, "should have retried twice before succeeding"
+
+
+async def test_call_claude_503_exhausts_retry_budget_then_clean_error(
+    monkeypatch: pytest.MonkeyPatch, patch_settings: None
+) -> None:
+    """If 503 persists past the retry budget, surface 'upstream busy', not
+    the raw nested JSON from the upstream error body."""
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, text='{"error":{"message":"No available channel"}}')
+
+    _patch_client_with(monkeypatch, handler)
+    with pytest.raises(RuntimeError, match=r"upstream busy after \d+ attempts.*503"):
+        await engine._call_claude("s", "u")
+
+
+async def test_call_claude_502_and_504_also_retried(
+    monkeypatch: pytest.MonkeyPatch, patch_settings: None
+) -> None:
+    """502 (bad gateway) and 504 (upstream timeout) are transient too."""
+    for status in (502, 504):
+        call_count = {"n": 0}
+
+        def handler(_request: httpx.Request) -> httpx.Response:
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return httpx.Response(status, text="upstream issue")
+            return httpx.Response(200, json={"content": [{"type": "text", "text": "ok"}]})
+
+        _patch_client_with(monkeypatch, handler)
+        out = await engine._call_claude("s", "u")
+        assert out == "ok", f"status {status} didn't recover after retry"
+
+
+async def test_call_claude_4xx_is_NOT_retried(
+    monkeypatch: pytest.MonkeyPatch, patch_settings: None
+) -> None:
+    """A 400 (our payload is wrong) should fail fast, no retry — retrying
+    won't fix a bad payload and just delays the error."""
+
+    call_count = {"n": 0}
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        call_count["n"] += 1
+        return httpx.Response(400, text="bad request")
+
+    _patch_client_with(monkeypatch, handler)
+    with pytest.raises(RuntimeError, match="HTTP 400"):
+        await engine._call_claude("s", "u")
+    assert call_count["n"] == 1, "4xx must NOT be retried"
