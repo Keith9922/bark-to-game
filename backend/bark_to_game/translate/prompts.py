@@ -119,13 +119,15 @@ Strict JSON only — no prose, no markdown fences. Schema:
   ]
 }
 
-Generate exactly 5 candidates. The probabilities should sum to ~1.0 and reflect
+Generate exactly 3 candidates. The probabilities should sum to ~1.0 and reflect
 your confidence that each interpretation honours the input tokens AND the
-playability rubric AND the audio-DNA pacing constraints.
+playability rubric AND the audio-DNA pacing constraints. Three sharply distinct
+candidates beat five blurry ones — only one of them will be shipped, and a
+shorter response keeps the upstream from timing out on busy channels.
 
 ═══════ DIVERSITY REQUIREMENTS (anti-homogenization, strict) ═══════
 
-The 5 candidates must be **meaningfully distinct along at least THREE of these
+The 3 candidates must be **meaningfully distinct along at least THREE of these
 axes** — re-skinning is forbidden and wastes a slot:
 
   • PLAYER ROLE & PERSPECTIVE   (1st-person hand vs top-down hero vs side-on
@@ -147,7 +149,7 @@ axes** — re-skinning is forbidden and wastes a slot:
 
 If two candidates differ only in colour / theme / wording, drop one. Replace
 it with something that breaks ≥3 of the above axes from the others. Be brave —
-the goal is that the 5 candidates feel like they came from 5 different designers.
+the goal is that the 3 candidates feel like they came from 3 different designers.
 
 DO NOT default to "catch / sort / match falling objects" when the mechanic is
 something else. The mechanic's `core_loop` IS the verb; honour it literally.
