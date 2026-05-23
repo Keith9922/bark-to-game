@@ -78,6 +78,29 @@ def _terminal_event(job: JobState) -> JobEvent:
     )
 
 
+def _friendly_job_error(kind: str, exc: BaseException) -> str:
+    """Job-level exception → message the frontend can show verbatim.
+
+    The frontend's EventStream renders ``❌ 生成失败：{error}`` literally, so we
+    want a one-line bilingual hint here rather than the bare engine
+    diagnostic ("stalled: API stream idle for 90s — upstream likely stuck").
+    Falls through to the raw exception text for unknown kinds so debugging
+    still works.
+    """
+    if kind == "stalled":
+        return (
+            "生成卡住了（上游长时间无响应），请重试。 "
+            "(Generation stalled — please retry.)"
+        )
+    if kind == "rate_limited":
+        return (
+            "Claude API 配额暂时不足，请稍后再试。 "
+            "(API quota exhausted — try later.)"
+        )
+    detail = str(exc) or type(exc).__name__
+    return f"游戏生成失败：{detail}"
+
+
 def _record_history(job: JobState, req: GenerateRequest, game_id: str) -> None:
     try:
         # Make sure the session the frontend submitted is registered. If the
@@ -124,17 +147,17 @@ async def _run_job(job: JobState, req: GenerateRequest) -> None:
         logger.info(f"job {job.job_id}: cancelled ({job.elapsed_s():.0f}s)")
         raise
     except RateLimitedError as exc:
-        job.mark_failed(f"rate_limited: {exc}")
+        job.mark_failed(_friendly_job_error("rate_limited", exc))
         job.publish(_terminal_event(job))
         _reap_post_failure(job, "rate-limited")
         logger.warning(f"job {job.job_id}: rate-limited (resets_at={exc.resets_at})")
     except GenerationStalledError as exc:
-        job.mark_failed(f"stalled: {exc}")
+        job.mark_failed(_friendly_job_error("stalled", exc))
         job.publish(_terminal_event(job))
         _reap_post_failure(job, "stalled")
         logger.warning(f"job {job.job_id}: stalled - {exc!r}")
     except Exception as exc:
-        job.mark_failed(str(exc))
+        job.mark_failed(_friendly_job_error("errored", exc))
         job.publish(_terminal_event(job))
         _reap_post_failure(job, "errored")
         logger.warning(f"job {job.job_id}: failed ({job.elapsed_s():.0f}s) - {exc!r}")

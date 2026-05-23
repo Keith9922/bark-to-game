@@ -5,9 +5,17 @@ default). This is a separate path from the legacy SDK so it doesn't compete
 with the user's interactive Claude Code window for Max-plan quota — same
 reason the game generator switched in PR #10.
 
-Translate output is small (~700 tokens of JSON) so we use a single
-non-streaming POST instead of the streaming flow `_api_backend.py` uses
-for the long game generation.
+We **stream** the API response. The translate output is small (~500 tokens of
+JSON for 3 candidates), but streaming buys two real wins over the previous
+non-streaming POST:
+
+  • Per-event idle bound (no bytes for ``_IDLE_TIMEOUT_S`` → stale) instead of
+    a single all-or-nothing 120 s ceiling. When the upstream channel is slow
+    but alive (drip-feeding bytes), we keep waiting; when it has actually
+    stalled, we know in seconds instead of two minutes.
+  • Clean integration with the retry loop. ``httpx.ReadTimeout`` now feeds
+    into the same transient-failure budget that already catches 502/503/504,
+    so a busy aipaibox channel doesn't 502 the user on the first try.
 
 What this layer adds beyond the LLM call:
   1. **Triplet picking with archive-aware down-weighting** — cards already
@@ -17,8 +25,8 @@ What this layer adds beyond the LLM call:
      and entropy are mapped to concrete gameplay knobs (spawn interval,
      concurrency cap, escalation rate, randomness) so the same mechanic
      plays differently for different barks instead of just changing flavour.
-  3. **Verbalized Sampling diversity pick** — among the 5 candidates the
-     model returns, choose the one with the highest probability × novelty.
+  3. **Verbalized Sampling diversity pick** — among the candidates the model
+     returns, choose the one with the highest probability × novelty.
 """
 
 from __future__ import annotations
@@ -37,12 +45,21 @@ from bark_to_game import settings
 from bark_to_game.generate._common import RateLimitedError
 from bark_to_game.translate import archive, prompts, recipes, style_cards
 
-# Translate is non-streaming and short, but the playability-rubric prompt
-# grew significantly: 5 candidates × 11 fields per candidate, plus a much
-# longer system prompt. On a busy Sonnet endpoint a clean response can
-# take 60–90s. We saw 100% 60s timeouts in prod after PR #29; bump to 120s.
-# If the API genuinely takes >120s, something IS wrong upstream.
-_REQUEST_TIMEOUT_S = 120.0
+# Total budget per single attempt. Generous: we expect 30-60 s on a healthy
+# channel and want headroom for slow channels. Crossing this almost never
+# happens in practice because the read bound (below) trips first when the
+# upstream stalls.
+_REQUEST_TIMEOUT_S = 240.0
+
+# Per-event idle bound. As long as the model is actively streaming bytes we
+# keep waiting; when bytes stop, this is how long we tolerate silence before
+# treating the call as stalled. Translate output is short, so 60 s of pure
+# silence is decisive.
+_IDLE_TIMEOUT_S = 60.0
+
+# Connection setup bound (DNS + TCP + TLS). aipaibox is sometimes slow to
+# allocate a channel; this still has to fit inside the overall budget.
+_CONNECT_TIMEOUT_S = 30.0
 
 
 class Concept(TypedDict):
@@ -214,8 +231,7 @@ def _derive_game_params(
 # chance of succeeding within seconds.
 _RETRYABLE_STATUS = frozenset({502, 503, 504})
 
-# Backoff schedule between attempts (in seconds). Total max-wait = sum =
-# ~3.3 s before we give up and surface the error. Override at module-level
+# Backoff schedule between attempts (in seconds). Override at module-level
 # in tests for instant runs.
 _RETRY_BACKOFFS_S: tuple[float, ...] = (0.8, 2.5)
 
@@ -228,11 +244,107 @@ class _TransientUpstreamError(Exception):
         self.status = status
 
 
+async def _stream_messages(
+    payload: dict[str, Any], headers: dict[str, str]
+) -> str:
+    """Stream a single Messages API call, return the concatenated assistant text.
+
+    Maps every failure mode into one of three outcomes:
+      • clean text on success
+      • ``_TransientUpstreamError`` for anything the retry loop should retry
+        (5xx, ReadTimeout, ConnectError, stream-level ``overloaded_error``)
+      • ``RuntimeError`` / ``RateLimitedError`` for terminal failures
+        (4xx, empty-stream, malformed stream)
+    """
+    timeout = httpx.Timeout(
+        _REQUEST_TIMEOUT_S, connect=_CONNECT_TIMEOUT_S, read=_IDLE_TIMEOUT_S
+    )
+    url = f"{settings.API_BASE_URL}/v1/messages"
+    text_parts: list[str] = []
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async with client.stream(
+                "POST", url, headers=headers, json=payload
+            ) as resp:
+                if resp.status_code == 429:
+                    body = (await resp.aread()).decode("utf-8", errors="replace")[
+                        :300
+                    ]
+                    raise RateLimitedError(
+                        f"translate API rate-limited (HTTP 429): {body}",
+                        resets_at=None,
+                    )
+                if resp.status_code in _RETRYABLE_STATUS:
+                    body = (await resp.aread()).decode("utf-8", errors="replace")[
+                        :200
+                    ]
+                    raise _TransientUpstreamError(
+                        f"HTTP {resp.status_code}: {body}",
+                        status=resp.status_code,
+                    )
+                if resp.status_code >= 400:
+                    body = (await resp.aread()).decode("utf-8", errors="replace")[
+                        :300
+                    ]
+                    raise RuntimeError(
+                        f"translate API HTTP {resp.status_code}: {body}"
+                    )
+
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    raw = line[len("data: ") :].strip()
+                    if not raw or raw == "[DONE]":
+                        continue
+                    try:
+                        event = json.loads(raw)
+                    except json.JSONDecodeError:
+                        logger.debug(f"translate: malformed SSE line: {raw[:200]}")
+                        continue
+                    etype = event.get("type")
+                    if etype == "content_block_delta":
+                        delta = event.get("delta") or {}
+                        if delta.get("type") == "text_delta":
+                            text_parts.append(delta.get("text", ""))
+                    elif etype == "error":
+                        err = event.get("error") or {}
+                        if err.get("type") == "overloaded_error":
+                            # Same family as 503: cheap-tier saturation.
+                            raise _TransientUpstreamError(
+                                f"stream overloaded: {err.get('message', '?')}"
+                            )
+                        raise RuntimeError(f"translate stream error: {err}")
+    except httpx.TimeoutException as exc:
+        # ReadTimeout = ``_IDLE_TIMEOUT_S`` of silence after some progress
+        # (or before the stream even started). ConnectTimeout = couldn't
+        # reach the proxy. Either way, retry has a real chance because a
+        # fresh channel may be allocated on the next try.
+        raise _TransientUpstreamError(
+            f"{type(exc).__name__} "
+            f"(idle bound {_IDLE_TIMEOUT_S:.0f}s, total bound {_REQUEST_TIMEOUT_S:.0f}s)"
+        ) from exc
+    except httpx.ConnectError as exc:
+        detail = str(exc) or type(exc).__name__
+        raise _TransientUpstreamError(f"ConnectError: {detail}") from exc
+
+    text = "".join(text_parts)
+    if not text:
+        # Explicit failure beats a downstream JSONDecodeError on "" — the
+        # stream completed but produced zero text deltas (often: only
+        # tool_use blocks, or empty content from a content-filter trip).
+        raise RuntimeError(
+            "translate API returned empty stream (no text deltas before end)"
+        )
+    return text
+
+
 async def _call_claude_once(system_prompt: str, user_prompt: str) -> str:
-    """Single attempt — see ``_call_claude`` for the retrying wrapper."""
+    """Single streaming attempt — see ``_call_claude`` for the retrying wrapper."""
     payload = {
         "model": settings.API_TRANSLATE_MODEL,
         "max_tokens": settings.API_TRANSLATE_MAX_OUTPUT_TOKENS,
+        "stream": True,
         "system": system_prompt,
         "messages": [{"role": "user", "content": user_prompt}],
     }
@@ -241,74 +353,24 @@ async def _call_claude_once(system_prompt: str, user_prompt: str) -> str:
         "anthropic-version": "2023-06-01",
         "content-type": "application/json",
     }
-
-    # `httpx.AsyncHTTPTransport(retries=N)` retries ONLY on network-level
-    # failures (ConnectError / DNS / TLS reset), not on HTTP status codes.
-    # We add HTTP-status retry in the outer wrapper below.
-    transport = httpx.AsyncHTTPTransport(retries=2)
-    try:
-        async with httpx.AsyncClient(
-            timeout=_REQUEST_TIMEOUT_S, transport=transport
-        ) as client:
-            resp = await client.post(
-                f"{settings.API_BASE_URL}/v1/messages", headers=headers, json=payload
-            )
-            if resp.status_code == 429:
-                raise RateLimitedError(
-                    f"translate API rate-limited (HTTP 429): {resp.text[:300]}",
-                    resets_at=None,
-                )
-            if resp.status_code in _RETRYABLE_STATUS:
-                raise _TransientUpstreamError(
-                    f"HTTP {resp.status_code}: {resp.text[:200]}",
-                    status=resp.status_code,
-                )
-            if resp.status_code >= 400:
-                raise RuntimeError(
-                    f"translate API HTTP {resp.status_code}: {resp.text[:300]}"
-                )
-            body = resp.json()
-    except httpx.TimeoutException as exc:
-        raise RuntimeError(
-            f"translate API timed out after {_REQUEST_TIMEOUT_S:.0f}s "
-            f"({type(exc).__name__}); the upstream model didn't return in time. "
-            f"Try again, or shorten the prompt."
-        ) from exc
-    except httpx.ConnectError as exc:
-        # Transport-level retries (2×) already happened; treat as transient
-        # one more time so the outer wrapper gets a chance to space-and-retry.
-        detail = str(exc) or type(exc).__name__
-        raise _TransientUpstreamError(f"ConnectError: {detail}") from exc
-
-    content = body.get("content") or []
-    text_parts = [
-        block["text"]
-        for block in content
-        if isinstance(block, dict) and block.get("type") == "text"
-    ]
-    if not text_parts:
-        # Explicit failure beats a downstream JSONDecodeError on "" — the
-        # proxy returned 200 with no text content (often: only tool_use
-        # blocks, or empty content array from a content-filter trip).
-        raise RuntimeError(
-            f"translate API returned no text content: "
-            f"stop_reason={body.get('stop_reason')!r} body={str(body)[:300]}"
-        )
-    return "".join(text_parts)
+    return await _stream_messages(payload, headers)
 
 
 async def _call_claude(system_prompt: str, user_prompt: str) -> str:
-    """Resilient Messages API call. Retries on transient upstream failures.
+    """Resilient streaming Messages API call. Retries on transient failures.
 
     Retried (1 initial attempt + up to ``len(_RETRY_BACKOFFS_S)`` more):
-      • httpx.ConnectError after transport's 2× network-layer retries
-      • HTTP 502 / 503 / 504 (e.g. aipaibox "no available channel" bursts)
+      • httpx.TimeoutException — ReadTimeout (idle) / ConnectTimeout / total
+        budget. The upstream is alive elsewhere; a fresh channel often
+        unblocks it.
+      • httpx.ConnectError after transport's network-layer retries.
+      • HTTP 502 / 503 / 504 — proxy / channel saturation.
+      • Stream-level ``overloaded_error`` events.
 
     NOT retried:
-      • httpx.TimeoutException — already waited the full ceiling, the user
-        is in real-time and another attempt would compound the wait
-      • 4xx (except 429 → RateLimitedError) — our payload is at fault
-      • Parse failures / empty 200 — content issue, retrying rarely helps
+      • 4xx (except 429 → RateLimitedError) — our payload is at fault.
+      • Empty response with no text deltas — content-level issue.
+      • Stream errors other than overloaded — model surfaced a real problem.
     """
     if not settings.API_KEY:
         raise RuntimeError(

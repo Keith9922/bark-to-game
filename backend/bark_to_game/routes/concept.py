@@ -17,6 +17,34 @@ from bark_to_game.translate.engine import translate
 router = APIRouter(prefix="/api/concept", tags=["concept"])
 
 
+def _user_friendly_translate_error(exc: BaseException) -> str:
+    """Translate engine exception → message the frontend can show verbatim.
+
+    The engine has its own retry loop for transient failures (5xx, ReadTimeout,
+    ConnectError, overloaded_error). Anything that bubbles up here has already
+    survived 3 attempts, so a friendly "上游响应慢，请稍后重试" beats the raw
+    "upstream busy after N attempts (last: ...)" stack chatter.
+
+    We classify by the engine's wrapper message pattern, falling back to the
+    raw exception text so unfamiliar failure modes are still debuggable.
+    """
+    detail = str(exc) or type(exc).__name__
+    if "upstream busy" in detail or "ReadTimeout" in detail or "ConnectError" in detail:
+        return (
+            "上游响应慢，已自动重试仍未成功，请稍后再试一次。 "
+            "(Upstream slow after retries — please try again in a few seconds.)"
+        )
+    if "rate-limited" in detail or "HTTP 429" in detail:
+        return (
+            "今日 API 额度已用尽，请稍后再试。"
+            "(API quota exhausted — try later.)"
+        )
+    # Unknown failure — keep the developer-readable detail so we can debug
+    # without leaving the user with an opaque error.
+    body = f"{type(exc).__name__}: {exc!s}" if str(exc) else type(exc).__name__
+    return f"translation failed: {body}"
+
+
 @router.post("/translate")
 async def translate_tokens(req: TranslateRequest) -> TranslateResponse:
     try:
@@ -29,13 +57,9 @@ async def translate_tokens(req: TranslateRequest) -> TranslateResponse:
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     except Exception as exc:  # SDK/network/parsing failure
-        # Preserve the exception type — httpx.ReadTimeout etc. have an empty
-        # str() and would otherwise surface as the bare "translation failed:"
-        # message we saw in prod after PR #29.
-        body = f"{type(exc).__name__}: {exc!s}" if str(exc) else type(exc).__name__
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY,
-            f"translation failed: {body}",
+            _user_friendly_translate_error(exc),
         ) from exc
 
     triplet = result["style_triplet"]

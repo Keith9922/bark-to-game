@@ -106,3 +106,35 @@ def test_translate_route_502_on_sdk_failure(monkeypatch: pytest.MonkeyPatch, tmp
         },
     )
     assert response.status_code == 502
+
+
+def test_translate_route_returns_friendly_msg_for_upstream_busy(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    """When the engine retries are exhausted and surface 'upstream busy', the
+    route must turn that into a bilingual human-readable detail — not echo
+    the raw 'RuntimeError: translate upstream busy after 3 attempts ...'
+    that the frontend would otherwise dump into a red error card."""
+    monkeypatch.setattr(archive, "ARCHIVE_DIR", tmp_path)
+
+    async def busy(_s: str, _u: str) -> str:
+        raise RuntimeError(
+            "translate upstream busy after 3 attempts "
+            "(last: ReadTimeout (idle bound 60s, total bound 240s)). "
+            "Try again in a few seconds."
+        )
+
+    monkeypatch.setattr(engine, "_call_claude", busy)
+
+    response = client.post(
+        "/api/concept/translate",
+        json={
+            "tokens": [_TOKEN],
+            "summary": _SUMMARY,
+            "audio_hash": "f00df00df00df00d",
+        },
+    )
+    assert response.status_code == 502
+    detail = response.json()["detail"]
+    assert "上游响应慢" in detail, f"expected bilingual upstream-busy msg, got: {detail}"
+    assert "RuntimeError" not in detail, "raw exception type leaked into user-facing msg"

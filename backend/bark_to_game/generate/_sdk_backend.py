@@ -143,6 +143,38 @@ Read ./CLAUDE.md in the current directory, then write a single self-contained
       ("再来一次") AND English ("Tap to replay"), and surfaces the spec's
       replay_hook.
 
+═══════ CODE SELF-CHECK (must pass before you write the html) ═══════
+
+15. **Don't ship undefined behaviour.** Before declaring done, mentally walk
+    through these three checks — every shipped bug from this template has
+    been one of them:
+
+    a. **State init at declaration.** Every `let`/`const`/`var` you reference
+       inside the game loop (player, items, enemies, score, target, etc.)
+       MUST be initialised to a concrete value at declaration — NOT declared
+       bare and "set later in init()". Use
+       `let player = { x: W/2, w: 110, h: 18, lives: 3 }`,
+       not `let player;` followed by `function init(){ player = {...} }`.
+       Reason: a first-frame paint or input event can fire before init()
+       runs and crash the game with TypeError on undefined access. Arrays:
+       `let items = []`, not `let items;`.
+
+    b. **Catch / sort / match mechanics — non-target items are FREE.**
+       If your core_loop is "catch the target shape" or "sort by colour"
+       or "match the prompt", then ONLY missing the actual TARGET costs a
+       life. Letting a non-target fall off-screen is correct play (the
+       player wisely didn't catch it). Never call `loseLife()` on a missed
+       non-target — that punishes correct play and is a real-user-reported
+       bug. The rules card MUST state this rule explicitly in both languages.
+
+    c. **Round-1 dry-run.** Imagine a brand-new player who skipped the rules
+       card. Walk them through the first 30 s. Do they:
+       1) understand what to do in 5 s (visible affordance)?
+       2) make their first successful action by 10 s?
+       3) clear the round-1 win quota by 30 s under §13a halved-quantity rule?
+       If any answer is "no", scale the round-1 numbers down further BEFORE
+       you emit the html.
+
 Use Write tool. Do not use Bash, Read, or Edit.
 """
 

@@ -79,7 +79,7 @@ def test_translate_prompt_requires_easy_to_hard_curve() -> None:
 
 
 def test_translate_prompt_strengthens_diversity_requirements() -> None:
-    """5 candidates must differ along multiple structural axes, not just theme."""
+    """3 candidates must differ along multiple structural axes, not just theme."""
     sp = prompts.SYSTEM_PROMPT
     assert "DIVERSITY REQUIREMENTS" in sp
     for axis in (

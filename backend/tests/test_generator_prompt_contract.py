@@ -139,3 +139,42 @@ def test_translate_prompt_carries_polish_bar() -> None:
     assert "POLISH BAR" in sp
     for word in ("hover", "multi-touch", "thumb"):
         assert word in sp.lower(), f"missing polish-bar word: {word!r}"
+
+
+def test_translate_prompt_asks_for_three_candidates_not_five() -> None:
+    """Five candidates × 11 fields was making the upstream model timeout on
+    busy aipaibox channels (May-23 prod 120 s ReadTimeout). Three is enough
+    for Verbalized Sampling diversity since we only ship the top pick."""
+    from bark_to_game.translate import prompts
+    sp = prompts.SYSTEM_PROMPT
+    assert "exactly 3 candidates" in sp, "translate must ask for 3 candidates"
+    assert "exactly 5 candidates" not in sp, (
+        "translate still asks for 5 — should be 3 to keep output small enough "
+        "that a single Claude call returns within the upstream timeout window"
+    )
+
+
+def test_both_generator_prompts_carry_code_self_check_rules() -> None:
+    """Regression for crashed games (uninitialised player/items vars) and the
+    catch-game logic bug (penalising missing non-target items). The prompt
+    must explicitly list both bug shapes so the model self-checks before
+    closing the html block."""
+    for name, sp in _BACKENDS:
+        # Section anchor — easy to grep if someone reorders.
+        assert "CODE SELF-CHECK" in sp, f"{name}: missing CODE SELF-CHECK section"
+
+        # 15a: init at declaration. Must call out the bare `let player;` anti-pattern
+        # so the model doesn't slide into the same lazy init.
+        assert "let player;" in sp or "let items;" in sp, (
+            f"{name}: missing 'don't declare bare, init later' anti-pattern example"
+        )
+
+        # 15b: catch/sort/match non-target = free. The bug we shipped twice.
+        assert "non-target" in sp.lower(), (
+            f"{name}: missing 'non-target items are FREE' rule"
+        )
+
+        # 15c: mental round-1 dry-run before output
+        assert "dry-run" in sp.lower() or "Round-1 dry-run" in sp, (
+            f"{name}: missing round-1 mental dry-run requirement"
+        )

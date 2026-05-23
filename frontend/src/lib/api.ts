@@ -195,11 +195,37 @@ export async function postTranslate(
   })
 
   if (!response.ok) {
-    const detail = await response.text().catch(() => response.statusText)
-    throw new Error(`translate ${response.status}: ${detail}`)
+    throw new Error(await extractApiErrorMessage(response, 'translate'))
   }
 
   return response.json() as Promise<TranslateResponse>
+}
+
+/**
+ * Unwrap a FastAPI error response into a clean user-facing message.
+ *
+ * Backend now returns ``{"detail": "上游响应慢，..."}`` for the failure modes
+ * the user actually sees. We pull that out so the UI doesn't display the
+ * raw JSON envelope. For unknown shapes (network errors, non-FastAPI 502s,
+ * etc.) we keep a short developer-readable fallback.
+ */
+async function extractApiErrorMessage(
+  response: Response,
+  endpointLabel: string,
+): Promise<string> {
+  const text = await response.text().catch(() => '')
+  if (text) {
+    try {
+      const parsed = JSON.parse(text) as { detail?: unknown }
+      if (typeof parsed.detail === 'string' && parsed.detail.trim()) {
+        return parsed.detail
+      }
+    } catch {
+      // fall through to raw text
+    }
+    return text
+  }
+  return `${endpointLabel} ${response.status} ${response.statusText}`
 }
 
 export type JobStatus = 'pending' | 'running' | 'done' | 'failed' | 'cancelled'
@@ -256,8 +282,7 @@ export async function postGenerate(
   })
 
   if (response.status !== 202) {
-    const detail = await response.text().catch(() => response.statusText)
-    throw new Error(`generate ${response.status}: ${detail}`)
+    throw new Error(await extractApiErrorMessage(response, 'generate'))
   }
 
   return response.json() as Promise<GenerateAccepted>
@@ -266,8 +291,7 @@ export async function postGenerate(
 export async function getJob(jobId: string): Promise<JobView> {
   const response = await fetch(`${BACKEND_URL}/api/game/job/${jobId}`)
   if (!response.ok) {
-    const detail = await response.text().catch(() => response.statusText)
-    throw new Error(`job ${response.status}: ${detail}`)
+    throw new Error(await extractApiErrorMessage(response, 'job'))
   }
   return response.json() as Promise<JobView>
 }
