@@ -179,6 +179,45 @@ export interface TranslateResponse {
   avoided_summaries: string[]
 }
 
+interface NdjsonError {
+  error: string
+  status?: number
+}
+
+/**
+ * Read an NDJSON stream and return the last non-empty line.
+ *
+ * The translate route streams heartbeat lines (a single space + newline)
+ * every few seconds to keep Cloudflare's response timer alive while the
+ * upstream model takes minutes. The real payload — or an
+ * ``{"error": ..., "status": ...}`` object on failure — is the final line.
+ */
+async function readNdjsonFinalLine(response: Response): Promise<string> {
+  if (!response.body) {
+    throw new Error(`translate ${response.status}: empty response body`)
+  }
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let lastLine = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    for (const line of lines) {
+      if (line.trim()) lastLine = line
+    }
+  }
+  // Whatever's left in the buffer at EOF is also a candidate final line.
+  if (buffer.trim()) lastLine = buffer
+  if (!lastLine) {
+    throw new Error(`translate ${response.status}: stream ended with no payload`)
+  }
+  return lastLine
+}
+
 export async function postTranslate(
   analyzeResult: AnalyzeResponse,
   sessionId: string = 'default',
@@ -195,10 +234,22 @@ export async function postTranslate(
   })
 
   if (!response.ok) {
+    // Headers say failure — there's no NDJSON stream to parse (e.g. a 502
+    // from Cloudflare itself when the tunnel is down, or a 5xx from nginx).
     throw new Error(await extractApiErrorMessage(response, 'translate'))
   }
 
-  return response.json() as Promise<TranslateResponse>
+  const lastLine = await readNdjsonFinalLine(response)
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(lastLine)
+  } catch {
+    throw new Error(`translate: malformed final line — ${lastLine.slice(0, 200)}`)
+  }
+  if (parsed && typeof parsed === 'object' && 'error' in parsed) {
+    throw new Error((parsed as NdjsonError).error)
+  }
+  return parsed as TranslateResponse
 }
 
 /**
