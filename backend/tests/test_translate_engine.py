@@ -76,7 +76,8 @@ async def test_translate_full_flow(monkeypatch: pytest.MonkeyPatch, tmp_path: An
     monkeypatch.setattr(archive, "ARCHIVE_DIR", tmp_path)
 
     async def fake_call(_system: str, _user: str) -> str:
-        return _fake_response(["Concept X", "Concept Y", "Concept Z", "Concept W", "Concept V"])
+        # Prompt now asks the LLM for 3 candidates (was 5 — see PR for context).
+        return _fake_response(["Concept X", "Concept Y", "Concept Z"])
 
     monkeypatch.setattr(engine, "_call_claude", fake_call)
 
@@ -86,8 +87,8 @@ async def test_translate_full_flow(monkeypatch: pytest.MonkeyPatch, tmp_path: An
         audio_hash="abcd1234abcd1234",
         session_id="test-session",
     )
-    assert result["chosen"]["title"] in {f"Concept {x}" for x in "XYZWV"}
-    assert len(result["candidates"]) == 5
+    assert result["chosen"]["title"] in {f"Concept {x}" for x in "XYZ"}
+    assert len(result["candidates"]) == 3
     assert result["style_triplet"]["art"]["name"]
     # archive should now contain the chosen entry
     entries = archive.load("test-session")

@@ -36,10 +36,16 @@ async def generate(
     style_triplet_summary: str,
     visual_recipe_name: str,
     *,
+    game_params: dict[str, Any] | None = None,
     on_start: Callable[[str], None] | None = None,
     publish: Callable[[JobEvent], None] | None = None,
 ) -> GenerationResult:
     """Dispatch to the configured backend.
+
+    ``game_params`` are the audio-derived gameplay knobs (tempo, density,
+    intensity, variability + concrete spawn / concurrency / escalation
+    numbers). Both backends render them into the CLAUDE.md spec so the
+    bark actually drives gameplay pacing — not just decoration.
 
     ``on_start`` is invoked with the absolute per-game cwd as soon as it's
     created — the HTTP cancel handler uses this to find and SIGKILL any
@@ -63,6 +69,7 @@ async def generate(
         concept=concept,
         style_triplet_summary=style_triplet_summary,
         visual_recipe_name=visual_recipe_name,
+        game_params=game_params,
         on_start=on_start,
         publish=publish,
     )

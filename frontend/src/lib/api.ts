@@ -142,6 +142,12 @@ export interface Concept {
   core_mechanic: string
   win_condition: string
   fail_condition: string
+  // Playability-rubric fields (added in feat/playability-overhaul). Optional
+  // because older history rows / legacy backends may not provide them — UI
+  // renders nothing for an empty slot rather than crashing.
+  onboarding_hint?: string
+  escalation_moment?: string
+  replay_hook?: string
   visual_summary: string
   audio_summary: string
 }
@@ -151,6 +157,17 @@ export interface StyleCardRef {
   description: string
 }
 
+export interface GameParams {
+  tempo: 'slow' | 'medium' | 'fast' | 'frantic'
+  density: 'sparse' | 'moderate' | 'dense'
+  intensity: 'gentle' | 'firm' | 'harsh'
+  variability: 'steady' | 'shifting' | 'wild'
+  spawn_interval_ms: number
+  max_concurrent: number
+  escalation_per_min: number
+  randomness_pct: number
+}
+
 export interface TranslateResponse {
   chosen: Concept
   chosen_probability: number
@@ -158,7 +175,47 @@ export interface TranslateResponse {
   candidate_count: number
   style_triplet: { art: StyleCardRef; mechanic: StyleCardRef; mood: StyleCardRef }
   visual_recipe: string
+  game_params: GameParams
   avoided_summaries: string[]
+}
+
+interface NdjsonError {
+  error: string
+  status?: number
+}
+
+/**
+ * Read an NDJSON stream and return the last non-empty line.
+ *
+ * The translate route streams heartbeat lines (a single space + newline)
+ * every few seconds to keep Cloudflare's response timer alive while the
+ * upstream model takes minutes. The real payload — or an
+ * ``{"error": ..., "status": ...}`` object on failure — is the final line.
+ */
+async function readNdjsonFinalLine(response: Response): Promise<string> {
+  if (!response.body) {
+    throw new Error(`translate ${response.status}: empty response body`)
+  }
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let lastLine = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    for (const line of lines) {
+      if (line.trim()) lastLine = line
+    }
+  }
+  // Whatever's left in the buffer at EOF is also a candidate final line.
+  if (buffer.trim()) lastLine = buffer
+  if (!lastLine) {
+    throw new Error(`translate ${response.status}: stream ended with no payload`)
+  }
+  return lastLine
 }
 
 export async function postTranslate(
@@ -177,11 +234,49 @@ export async function postTranslate(
   })
 
   if (!response.ok) {
-    const detail = await response.text().catch(() => response.statusText)
-    throw new Error(`translate ${response.status}: ${detail}`)
+    // Headers say failure — there's no NDJSON stream to parse (e.g. a 502
+    // from Cloudflare itself when the tunnel is down, or a 5xx from nginx).
+    throw new Error(await extractApiErrorMessage(response, 'translate'))
   }
 
-  return response.json() as Promise<TranslateResponse>
+  const lastLine = await readNdjsonFinalLine(response)
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(lastLine)
+  } catch {
+    throw new Error(`translate: malformed final line — ${lastLine.slice(0, 200)}`)
+  }
+  if (parsed && typeof parsed === 'object' && 'error' in parsed) {
+    throw new Error((parsed as NdjsonError).error)
+  }
+  return parsed as TranslateResponse
+}
+
+/**
+ * Unwrap a FastAPI error response into a clean user-facing message.
+ *
+ * Backend now returns ``{"detail": "上游响应慢，..."}`` for the failure modes
+ * the user actually sees. We pull that out so the UI doesn't display the
+ * raw JSON envelope. For unknown shapes (network errors, non-FastAPI 502s,
+ * etc.) we keep a short developer-readable fallback.
+ */
+async function extractApiErrorMessage(
+  response: Response,
+  endpointLabel: string,
+): Promise<string> {
+  const text = await response.text().catch(() => '')
+  if (text) {
+    try {
+      const parsed = JSON.parse(text) as { detail?: unknown }
+      if (typeof parsed.detail === 'string' && parsed.detail.trim()) {
+        return parsed.detail
+      }
+    } catch {
+      // fall through to raw text
+    }
+    return text
+  }
+  return `${endpointLabel} ${response.status} ${response.statusText}`
 }
 
 export type JobStatus = 'pending' | 'running' | 'done' | 'failed' | 'cancelled'
@@ -231,14 +326,14 @@ export async function postGenerate(
       concept: translation.chosen,
       style_triplet: translation.style_triplet,
       visual_recipe: translation.visual_recipe,
+      game_params: translation.game_params,
       audio_hash: analyzeResult.audio_hash,
       session_id: sessionId,
     }),
   })
 
   if (response.status !== 202) {
-    const detail = await response.text().catch(() => response.statusText)
-    throw new Error(`generate ${response.status}: ${detail}`)
+    throw new Error(await extractApiErrorMessage(response, 'generate'))
   }
 
   return response.json() as Promise<GenerateAccepted>
@@ -247,8 +342,7 @@ export async function postGenerate(
 export async function getJob(jobId: string): Promise<JobView> {
   const response = await fetch(`${BACKEND_URL}/api/game/job/${jobId}`)
   if (!response.ok) {
-    const detail = await response.text().catch(() => response.statusText)
-    throw new Error(`job ${response.status}: ${detail}`)
+    throw new Error(await extractApiErrorMessage(response, 'job'))
   }
   return response.json() as Promise<JobView>
 }
@@ -398,19 +492,29 @@ export function audioPlayUrl(audioPath: string): string {
   return `${BACKEND_URL}${audioPath}`
 }
 
-export interface ShowcaseItem {
+export interface WorkItem {
   game_id: string
-  summary: string
+  title: string
+  tagline: string
+  art: string
+  mechanic: string
+  mood: string
+  visual_recipe: string
+  /** Relative URL to the original recording's wav, or null if not preserved. */
+  audio_url: string | null
   play_url: string
   created_at: number
-  size_bytes: number
+  /** False when the entry was synthesised from a filesystem orphan rather
+   *  than read out of the history index — the card hides the meta tags
+   *  + audio in that case. */
+  has_history: boolean
 }
 
-export async function fetchShowcase(): Promise<ShowcaseItem[]> {
+export async function fetchWorks(): Promise<WorkItem[]> {
   const response = await fetch(`${BACKEND_URL}/api/game/showcase/all`)
   if (!response.ok) {
-    throw new Error(`showcase ${response.status}`)
+    throw new Error(`works ${response.status}`)
   }
-  const data = (await response.json()) as { items: ShowcaseItem[] }
+  const data = (await response.json()) as { items: WorkItem[] }
   return data.items
 }

@@ -54,8 +54,11 @@ API_MAX_OUTPUT_TOKENS: int = int(os.getenv("BARK_API_MAX_OUTPUT_TOKENS", "16000"
 # Override with BARK_API_TRANSLATE_MODEL in .env if Sonnet's concepts feel weak.
 API_TRANSLATE_MODEL: str = os.getenv("BARK_API_TRANSLATE_MODEL", "claude-sonnet-4-6")
 
-# Cap on tokens for translate JSON output — 5 candidates of ~150 tokens each
-# fit comfortably in 2 KB.
+# Cap on tokens for translate JSON output. After PR #29 each candidate
+# carries 11 fields (added onboarding_hint, escalation_moment, replay_hook),
+# so 5 candidates ≈ 5 × ~300 tokens ≈ 1500 tokens of body. 4096 was getting
+# tight on the longer candidates and forced truncation → invalid JSON. 8192
+# gives comfortable headroom without inflating cost.
 API_TRANSLATE_MAX_OUTPUT_TOKENS: int = int(
-    os.getenv("BARK_API_TRANSLATE_MAX_OUTPUT_TOKENS", "4096")
+    os.getenv("BARK_API_TRANSLATE_MAX_OUTPUT_TOKENS", "8192")
 )

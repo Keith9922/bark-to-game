@@ -48,5 +48,35 @@
     "name": "bauhaus",
     "description": "Geometric primitives (circle/triangle/square), primary colors, rigorous grid, sans-serif.",
     "palette_hint": "red, yellow, blue on white"
+  },
+  {
+    "name": "papercut",
+    "description": "Layered paper silhouettes with hard edges, drop shadows between layers, foreground/midground/background depth.",
+    "palette_hint": "5 stacked solid colours separated by soft shadow gaps"
+  },
+  {
+    "name": "art_nouveau",
+    "description": "Flowing organic curves, decorative whiplash lines, ornamental floral borders, Alphonse Mucha framings.",
+    "palette_hint": "muted greens and golds with cream and ochre"
+  },
+  {
+    "name": "pop_art",
+    "description": "Bold solid colors, halftone benday dots, thick black outlines, Roy Lichtenstein punch.",
+    "palette_hint": "primary red and yellow with thick black contour"
+  },
+  {
+    "name": "charcoal_sketch",
+    "description": "Smudged graphite and charcoal strokes, visible paper grain, gestural unfinished feel.",
+    "palette_hint": "warm white paper with three values of soft black"
+  },
+  {
+    "name": "glitch_datamosh",
+    "description": "Corrupted VHS / lossy compression artefacts, RGB channel shift, frame tearing, bitmap mush.",
+    "palette_hint": "RGB-shifted magenta-cyan with scan-line noise on near-black"
+  },
+  {
+    "name": "van_gogh_impasto",
+    "description": "Thick directional brushstrokes, visible swirl rhythm, post-impressionist swirling skies and grass.",
+    "palette_hint": "saturated cobalt and chrome yellow with sienna swirls"
   }
 ]
