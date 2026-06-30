@@ -6,6 +6,29 @@ Inspired by [Caleb Leak — "I Taught My Dog to Vibe Code Games"](https://www.ca
 
 The premise from the article — _the magic is not in the input, it is in the system around it_ — is what we test here.
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/assets/bark_home.png" alt="bark-to-game homepage — hold to bark, and the showcase fills with games" width="80%">
+  <br><sub><b>Homepage</b> — hold the dial and bark; the showcase below fills with everything you've made.</sub>
+</p>
+
+<p align="center">
+  <img src="docs/assets/bark_game_tide.png" alt="A generated game opens on a bilingual rule card" width="80%">
+  <br><sub><b>Every game opens on a bilingual rule card</b> (中文 + English: goal / controls / rules), drawn in one of 8 visual recipes — then the first interactive element pulses, so a stranger can start playing in under 5 seconds.</sub>
+</p>
+
+<p align="center">
+  <img src="docs/assets/bark_mobile_home.png" alt="bark-to-game running on a phone" width="32%">
+  <br><sub><b>Records and plays on mobile</b> — Pointer-events capture over HTTPS (cloudflared tunnel) so <code>getUserMedia</code> works on phones.</sub>
+</p>
+
+<details>
+  <summary><b>The <code>/works</code> gallery — every game ever generated, each with its original bark for playback (click to expand)</b></summary>
+  <br>
+  <p align="center"><img src="docs/assets/bark_works.png" alt="The /works showcase gallery" width="42%"></p>
+</details>
+
 ## Pipeline
 
 ```
@@ -20,8 +43,8 @@ backend audio analysis
    ▼
 translation layer (claude-agent-sdk)
    │  Verbalized Sampling (k=5 candidates with probabilities)
-   │  random style triplet (10 art × 10 mechanic × 10 mood, seeded by audio hash)
-   │  random visual recipe (5 markdown style contracts)
+   │  random style triplet (16 art × 24 mechanic × 16 mood, seeded by audio hash)
+   │  random visual recipe (8 markdown style contracts)
    │  MAP-Elites archive (per-session) penalises recently-occupied cells
    │  pick argmax(p · (1 − similarity_to_recent))
    ▼
@@ -43,11 +66,11 @@ playable game in the user's browser
 |---|---|---|
 | 0 | `feat/phase-0-scaffold` | Repo bootstrap, three sub-projects (backend / frontend / game-template), CRT terminal aesthetic placeholder |
 | 1 | `feat/phase-1-audio` | Audio recording UI (hold-to-bark, mobile-friendly Pointer events), `/api/audio/analyze` returning compound token segments + session summary (rhythm/mood/entropy) + audio_hash |
-| 2 | `feat/phase-2-translate` | `claude-agent-sdk` translation, Verbalized Sampling, 10×10×10 style cards, 5 visual recipes, MAP-Elites archive in `data/archive/{session}.json`, ConceptCard UI |
+| 2 | `feat/phase-2-translate` | `claude-agent-sdk` translation, Verbalized Sampling, 16×24×16 style cards, 8 visual recipes, MAP-Elites archive in `data/archive/{session}.json`, ConceptCard UI |
 | 3 | `feat/phase-3-generate` | Async job game generation (POST → 202 + job_id, async SDK call, polling endpoint), asset playbook in `game_assets/`, iframe player with live elapsed timer |
 | 4 | `feat/phase-4-sessions` | Application-level sessions (`/api/sessions`), SessionSwitcher in header backed by `localStorage` + `useSyncExternalStore`; session id threaded through translate + generate; isolates the diversity archive |
 
-Total: **40 backend tests**, **5 frontend tests**, all gates clean (typecheck / lint / format / build) across both Python and TypeScript.
+Total: **148 backend tests**, **15 frontend tests**, all gates clean (typecheck / lint / format / build) across both Python and TypeScript.
 
 ## Stack
 
@@ -98,7 +121,7 @@ Three layers stack to prevent generations from converging on the same shapes (th
 
 1. **Input** — compound tokens carry 5 orthogonal dimensions (type × pitch × duration × intensity × contour). The audio SHA256 seeds the style triplet selection so the same recording is reproducible but a slightly different recording diverges.
 2. **Translation** — Verbalized Sampling forces the model to surface 5 candidates with probabilities, bypassing the RLHF mode collapse documented in [arXiv 2510.01171](https://arxiv.org/abs/2510.01171). Selection prefers concepts dissimilar to the recent archive entries.
-3. **Generation** — per-round `CLAUDE.md` rewrite with a hard "follow the visual recipe literally" contract, randomly-selected from 5 hand-authored recipes (`pixel_crt`, `handdrawn_sketch`, `glitch_y2k`, `isometric_pastel`, `vector_swiss`).
+3. **Generation** — per-round `CLAUDE.md` rewrite with a hard "follow the visual recipe literally" contract, randomly-selected from 8 hand-authored recipes (`pixel_crt`, `handdrawn_sketch`, `glitch_y2k`, `isometric_pastel`, `vector_swiss`, `neon_noir`, `papercut_layered`, `watercolor_ink`).
 
 Switch sessions to get an empty archive and a different style seed-space.
 
