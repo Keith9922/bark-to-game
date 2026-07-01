@@ -31,6 +31,7 @@ from bark_to_game import settings
 from bark_to_game.generate._common import (
     GenerationResult,
     GenerationStalledError,
+    GenerationTruncatedError,
     RateLimitedError,
     new_game_dir,
 )
@@ -285,7 +286,14 @@ async def generate_via_api(
         f"recipe={visual_recipe_name}"
     )
 
-    full_text = await _stream_messages(payload, headers, publish)
+    full_text, stop_reason = await _stream_messages(payload, headers, publish)
+
+    if stop_reason == "max_tokens":
+        raise GenerationTruncatedError(
+            f"generation hit the {settings.API_MAX_OUTPUT_TOKENS}-token output "
+            f"cap before finishing (got {len(full_text)} chars); the html block "
+            f"is incomplete"
+        )
 
     blocks = _extract_fenced_blocks(full_text)
     html_block = next(
@@ -338,17 +346,20 @@ async def _stream_messages(
     payload: dict[str, Any],
     headers: dict[str, str],
     publish: Callable[[JobEvent], None] | None,
-) -> str:
-    """Stream the Messages API response, return the concatenated assistant text.
+) -> tuple[str, str | None]:
+    """Stream the Messages API response; return (assistant_text, stop_reason).
 
-    Forwards per-block progress to ``publish`` and surfaces rate-limit + stall
-    failures through the same error types the SDK backend uses, so the route
-    layer can treat both backends identically.
+    ``stop_reason`` comes from the terminal ``message_delta`` event
+    (``end_turn`` | ``max_tokens`` | ...); the caller uses it to detect
+    truncation. Forwards per-block progress to ``publish`` and surfaces
+    rate-limit + stall failures through the same error types the SDK backend
+    uses, so the route layer can treat both backends identically.
     """
     timeout = httpx.Timeout(REQUEST_TIMEOUT_S, connect=30.0, read=IDLE_TIMEOUT_S)
     url = f"{settings.API_BASE_URL}/v1/messages"
     full_text_parts: list[str] = []
     last_publish_len = 0
+    stop_reason: str | None = None
 
     async with httpx.AsyncClient(timeout=timeout) as client:
         try:
@@ -361,6 +372,11 @@ async def _stream_messages(
                     )
                 if resp.status_code >= 400:
                     body = (await resp.aread()).decode("utf-8", errors="replace")[:400]
+                    if resp.status_code in (400, 404) and "model" in body.lower():
+                        raise RuntimeError(
+                            f"API rejected model {settings.API_MODEL!r} "
+                            f"(HTTP {resp.status_code}) — check BARK_API_MODEL. {body}"
+                        )
                     raise RuntimeError(
                         f"API error HTTP {resp.status_code}: {body}"
                     )
@@ -376,7 +392,9 @@ async def _stream_messages(
                     except json.JSONDecodeError:
                         logger.debug(f"api: malformed SSE line: {raw[:200]}")
                         continue
-                    _handle_event(event, full_text_parts, publish)
+                    reason = _handle_event(event, full_text_parts, publish)
+                    if reason is not None:
+                        stop_reason = reason
 
                     # Periodic preview publish so the UI sees activity.
                     total_len = sum(len(p) for p in full_text_parts)
@@ -402,7 +420,7 @@ async def _stream_messages(
                 f"API request exceeded {REQUEST_TIMEOUT_S:.0f}s total"
             ) from exc
 
-    return "".join(full_text_parts)
+    return "".join(full_text_parts), stop_reason
 
 
 def _extract_fenced_blocks(text: str) -> list[dict[str, Any]]:
@@ -440,14 +458,18 @@ def _handle_event(
     event: dict[str, Any],
     text_parts: list[str],
     publish: Callable[[JobEvent], None] | None,
-) -> None:
+) -> str | None:
+    """Append any text delta; return the terminal ``stop_reason`` if this
+    event carried one (``message_delta``), else ``None``."""
     etype = event.get("type")
     if etype == "content_block_delta":
         delta = event.get("delta") or {}
         if delta.get("type") == "text_delta":
             text_parts.append(delta.get("text", ""))
+    elif etype == "message_delta":
+        # Carries the terminal stop_reason: end_turn | max_tokens | ...
+        return (event.get("delta") or {}).get("stop_reason")
     elif etype == "message_stop":
-        # Stream terminated cleanly; let the outer code finalise.
         pass
     elif etype == "error":
         err = event.get("error") or {}
@@ -456,6 +478,7 @@ def _handle_event(
                 f"API overloaded: {err.get('message', '?')}", resets_at=None
             )
         raise RuntimeError(f"API stream error: {err}")
+    return None
 
 
 def _resets_at_from_headers(headers: httpx.Headers) -> int | None:

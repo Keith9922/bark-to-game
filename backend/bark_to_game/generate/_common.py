@@ -35,6 +35,13 @@ class GenerationStalledError(RuntimeError):
     """Raised when the upstream stops emitting progress for too long."""
 
 
+class GenerationTruncatedError(RuntimeError):
+    """Raised when the model hit its ``max_tokens`` output cap before finishing
+    the game, so the ```html block is incomplete. Distinct from a stall: a
+    retry with the same cap would truncate again, so the route layer shows a
+    specific message and does NOT retry it."""
+
+
 def load_recipe_markdown(name: str) -> str:
     path = VISUAL_RECIPES_DIR / f"recipe_{name}.md"
     if not path.exists():

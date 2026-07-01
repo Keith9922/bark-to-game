@@ -45,6 +45,19 @@ def _sse_body(text: str) -> bytes:
     return b"".join(f"event: {e['type']}\ndata: {json.dumps(e)}\n\n".encode() for e in events)
 
 
+def _sse_body_truncated(text: str) -> bytes:
+    """SSE stream that ends with stop_reason=max_tokens (a truncated turn)."""
+    events = [
+        {"type": "message_start", "message": {"id": "msg", "role": "assistant"}},
+        {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}},
+        {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": text}},
+        {"type": "content_block_stop", "index": 0},
+        {"type": "message_delta", "delta": {"stop_reason": "max_tokens"}},
+        {"type": "message_stop"},
+    ]
+    return b"".join(f"event: {e['type']}\ndata: {json.dumps(e)}\n\n".encode() for e in events)
+
+
 _REAL_ASYNC_CLIENT = httpx.AsyncClient
 
 
@@ -223,6 +236,44 @@ async def test_api_generate_missing_html_block(
     _patch_client_with(monkeypatch, handler)
 
     with pytest.raises(RuntimeError, match="did not contain"):
+        await _api_backend.generate_via_api(
+            concept=_CONCEPT,
+            style_triplet_summary="x",
+            visual_recipe_name="pixel_crt",
+        )
+
+
+async def test_api_generate_truncation_raises_truncated_error(
+    monkeypatch: pytest.MonkeyPatch, patch_recipes: None, patch_settings: None
+) -> None:
+    # An unterminated ```html block — exactly what a max_tokens cutoff produces.
+    body = "```html\n<!DOCTYPE html><html><body>partial game, cut off mid-"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=_sse_body_truncated(body))
+
+    _patch_client_with(monkeypatch, handler)
+
+    with pytest.raises(_common.GenerationTruncatedError):
+        await _api_backend.generate_via_api(
+            concept=_CONCEPT,
+            style_triplet_summary="x",
+            visual_recipe_name="pixel_crt",
+        )
+
+
+async def test_api_generate_model_rejected_is_clear(
+    monkeypatch: pytest.MonkeyPatch, patch_recipes: None, patch_settings: None
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            content=b'{"error":{"type":"invalid_request_error","message":"model: unknown model"}}',
+        )
+
+    _patch_client_with(monkeypatch, handler)
+
+    with pytest.raises(RuntimeError, match="BARK_API_MODEL"):
         await _api_backend.generate_via_api(
             concept=_CONCEPT,
             style_triplet_summary="x",
