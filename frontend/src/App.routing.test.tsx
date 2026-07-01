@@ -13,7 +13,7 @@ describe('App routing (shell)', () => {
     window.history.pushState({}, '', '/')
     render(<App />)
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/bark.*to.*game/i)
-    expect(screen.getByRole('button', { name: /开始录音/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /按住模仿狗叫|开始录音/ })).toBeInTheDocument()
   })
 
   it('renders the shareable game page at /game/:id', () => {

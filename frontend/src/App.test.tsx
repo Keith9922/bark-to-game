@@ -15,9 +15,9 @@ describe('App (v2 — bilingual UX)', () => {
     expect(status).toHaveTextContent(/READY/)
   })
 
-  it('shows the Chinese start-recording button', () => {
+  it('shows the Chinese record button', () => {
     render(<App />)
-    expect(screen.getByRole('button', { name: /开始录音/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /按住模仿狗叫|开始录音/ })).toBeInTheDocument()
   })
 
   it('explains the flow in Chinese', () => {
