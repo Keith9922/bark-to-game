@@ -63,3 +63,8 @@ API_TRANSLATE_MODEL: str = os.getenv("BARK_API_TRANSLATE_MODEL", "claude-sonnet-
 API_TRANSLATE_MAX_OUTPUT_TOKENS: int = int(
     os.getenv("BARK_API_TRANSLATE_MAX_OUTPUT_TOKENS", "8192")
 )
+
+# How many times _run_job retries generation on a transient failure (stall /
+# unexpected error). Rate-limit and truncation are NOT retried. Total attempts
+# = API_MAX_RETRIES + 1.
+API_MAX_RETRIES: int = int(os.getenv("BARK_API_MAX_RETRIES", "2"))

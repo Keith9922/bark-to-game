@@ -353,3 +353,89 @@ def test_showcase_empty_when_no_data(
     response = client.get("/api/game/showcase/all")
     assert response.status_code == 200
     assert response.json() == {"items": []}
+
+
+def test_run_job_retries_transient_then_succeeds(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from bark_to_game import settings
+    from bark_to_game.routes import game as game_route
+
+    monkeypatch.setattr(settings, "API_MAX_RETRIES", 2)
+    calls = {"n": 0}
+
+    async def flaky(**kwargs: Any) -> generator.GenerationResult:
+        calls["n"] += 1
+        on_start = kwargs.get("on_start")
+        game_dir = tmp_path / f"attempt{calls['n']}"
+        game_dir.mkdir()
+        (game_dir / "CLAUDE.md").write_text("spec")  # husk
+        if on_start:
+            on_start(str(game_dir))
+        if calls["n"] == 1:
+            raise generator.GenerationStalledError("stalled once")
+        (game_dir / "game.html").write_text("<html></html>")
+        return generator.GenerationResult(
+            game_id="attempt2", game_path=str(game_dir / "game.html"),
+            summary="ok", cwd=str(game_dir),
+        )
+
+    monkeypatch.setattr(game_route, "generate", flaky)
+
+    resp = client.post("/api/game/generate", json=_request_body())
+    final = _poll(resp.json()["job_id"])
+    assert final["status"] == "done"
+    assert calls["n"] == 2
+    assert not (tmp_path / "attempt1").exists()  # husk from failed attempt cleaned
+    assert (tmp_path / "attempt2" / "game.html").exists()  # success kept
+
+
+def test_run_job_no_retry_on_rate_limit(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from bark_to_game import settings
+    from bark_to_game.routes import game as game_route
+
+    monkeypatch.setattr(settings, "API_MAX_RETRIES", 2)
+    calls = {"n": 0}
+
+    async def rate_limited(**_: Any) -> generator.GenerationResult:
+        calls["n"] += 1
+        raise generator.RateLimitedError("quota", resets_at=None)
+
+    monkeypatch.setattr(game_route, "generate", rate_limited)
+
+    resp = client.post("/api/game/generate", json=_request_body())
+    final = _poll(resp.json()["job_id"])
+    assert final["status"] == "failed"
+    assert calls["n"] == 1  # not retried
+
+
+def test_run_job_truncated_not_retried_and_husk_cleaned(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from bark_to_game import settings
+    from bark_to_game.generate.generator import GenerationTruncatedError
+    from bark_to_game.routes import game as game_route
+
+    monkeypatch.setattr(settings, "API_MAX_RETRIES", 2)
+    calls = {"n": 0}
+
+    async def truncated(**kwargs: Any) -> generator.GenerationResult:
+        calls["n"] += 1
+        on_start = kwargs.get("on_start")
+        game_dir = tmp_path / "husk"
+        game_dir.mkdir(exist_ok=True)
+        (game_dir / "CLAUDE.md").write_text("spec")
+        if on_start:
+            on_start(str(game_dir))
+        raise GenerationTruncatedError("hit cap")
+
+    monkeypatch.setattr(game_route, "generate", truncated)
+
+    resp = client.post("/api/game/generate", json=_request_body())
+    final = _poll(resp.json()["job_id"])
+    assert final["status"] == "failed"
+    assert calls["n"] == 1  # truncation not retried
+    assert "截断" in (final["error"] or "") or "output limit" in (final["error"] or "")
+    assert not (tmp_path / "husk").exists()  # husk cleaned
