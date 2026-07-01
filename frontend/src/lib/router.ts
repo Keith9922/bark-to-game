@@ -27,12 +27,19 @@ export function usePath(): string {
   return path
 }
 
-/** Programmatic navigation. Use this instead of <a href> for in-app links. */
-export function navigate(to: string): void {
+/**
+ * Programmatic navigation. Use this instead of <a href> for in-app links.
+ *
+ * `replace: true` swaps the current history entry instead of pushing a new one
+ * — used for redirects (e.g. bouncing an empty /create back to /) so they
+ * don't leave a dead entry the back button lands on.
+ */
+export function navigate(to: string, opts?: { replace?: boolean }): void {
   if (to === window.location.pathname) return
-  window.history.pushState({}, '', to)
+  if (opts?.replace) window.history.replaceState({}, '', to)
+  else window.history.pushState({}, '', to)
   window.dispatchEvent(new Event('routechange'))
-  // Scroll to top so /works doesn't load mid-scroll from where the user was.
+  // Scroll to top so a new view doesn't load mid-scroll from where the user was.
   window.scrollTo(0, 0)
 }
 

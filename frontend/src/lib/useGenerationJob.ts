@@ -24,7 +24,6 @@
  */
 
 import { useCallback, useEffect, useReducer, useRef } from 'react'
-import type { PlayableGame } from '../components/GameFrame'
 import { phaseFromAnalyzeResponse, type EarlyPhase } from './analyzePhase'
 import {
   cancelJob,
@@ -50,6 +49,12 @@ const STUCK_MESSAGE =
   '生成时间过长，可能卡住了。可以重试，或去作品集看看有没有生成成功。 (Generation is taking too long — retry, or check the works.)'
 const CONNECTION_LOST_MESSAGE =
   '与后端的连接反复中断，请重试。 (Lost connection to the backend — please retry.)'
+
+export interface PlayableGame {
+  game_id: string
+  summary: string
+  play_url: string
+}
 
 export type GenPhase =
   | { kind: 'idle' }
