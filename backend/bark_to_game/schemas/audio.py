@@ -43,3 +43,6 @@ class AnalyzeResponse(BaseModel):
     detected_class: str = ""
     # How many segments YAMNet rejected as non-dog. Useful for diagnostics.
     rejected_segment_count: int = 0
+    # True when YAMNet was unavailable and the heuristic fallback ran, so
+    # dog-detection is best-effort. The UI can flag lower confidence.
+    degraded: bool = False

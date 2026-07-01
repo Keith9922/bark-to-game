@@ -288,6 +288,12 @@ function StudioView({ job }: { job: GenerationJob }) {
 
         {tokens && <TokenList result={tokens} />}
 
+        {tokens?.degraded && (
+          <p className="text-[11px] text-amber-crt/50 font-mono border border-amber-crt/20 px-3 py-2">
+            ⚠️ 声音识别降级（YAMNet 暂不可用），音色判断可能不准。
+          </p>
+        )}
+
         {phase.kind === 'translating' && (
           <ProgressBar
             label="正在构思游戏 · TRANSLATING"

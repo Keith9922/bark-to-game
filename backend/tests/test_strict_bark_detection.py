@@ -70,6 +70,7 @@ def test_pipeline_marks_not_a_bark_when_all_segments_rejected(
             is_dog_like=False,
             top_other_class="Speech",
             top_other_score=0.9,
+            degraded=False,
         )
 
     monkeypatch.setattr(classify_mod, "classify", fake_classify)
@@ -92,6 +93,7 @@ def test_pipeline_marks_bark_when_at_least_one_segment_dog_like(
             is_dog_like=True,
             top_other_class="Speech",
             top_other_score=0.9,
+            degraded=False,
         )
 
     monkeypatch.setattr(classify_mod, "classify", fake_classify)

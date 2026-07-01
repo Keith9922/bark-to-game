@@ -11,6 +11,7 @@ const tokens = {
   detection: 'bark',
   detected_class: '',
   rejected_segment_count: 0,
+  degraded: false,
 } as AnalyzeResponse
 
 const concept = {

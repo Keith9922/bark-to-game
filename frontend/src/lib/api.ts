@@ -51,6 +51,9 @@ export interface AnalyzeResponse {
   detected_class: string
   // Diagnostic: how many segments were rejected by the dog-likeness check.
   rejected_segment_count: number
+  // True when YAMNet was unavailable and the heuristic fallback ran, so the
+  // dog-detection is best-effort. UI can flag lower confidence.
+  degraded: boolean
 }
 
 function writeAscii(view: DataView, offset: number, ascii: string): void {

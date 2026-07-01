@@ -86,7 +86,8 @@ def analyze(audio_bytes: bytes) -> dict[str, Any]:
 
     # Hard silence guard: librosa.effects.split can mis-detect on uniform
     # zero/near-zero signals. Bypass segmentation if peak is essentially zero.
-    if float(np.max(np.abs(y))) < SILENCE_AMPLITUDE_THRESHOLD:
+    peak = float(np.max(np.abs(y)))
+    if peak < SILENCE_AMPLITUDE_THRESHOLD:
         return {
             "audio_hash": audio_hash,
             "duration_ms": duration_ms,
@@ -96,12 +97,19 @@ def analyze(audio_bytes: bytes) -> dict[str, Any]:
             "detection": "silent",
             "detected_class": "",
             "rejected_segment_count": 0,
+            "degraded": False,
         }
+
+    # Peak-normalise so intensity (RMS) is gain-invariant — the same bark at a
+    # different mic level lands in the same SOFT/NORMAL/LOUD bucket, and the
+    # bins stop tracking recording level instead of loudness.
+    y = y / peak
 
     intervals = segmentation.split_on_silence(y, SAMPLE_RATE)
 
     bark_tokens: list[dict[str, Any]] = []
     rejected_count = 0
+    degraded = False
     # Track the strongest non-dog class we saw, so the front-end can tell the
     # user what was heard instead of just "not a bark".
     strongest_other_class = ""
@@ -112,6 +120,7 @@ def analyze(audio_bytes: bytes) -> dict[str, Any]:
         seg_duration_ms = int((end - start) / SAMPLE_RATE * 1000)
         feats = features.compute(segment, SAMPLE_RATE)
         cls = classify.classify(segment, SAMPLE_RATE)
+        degraded = degraded or cls["degraded"]
         if not cls["is_dog_like"]:
             rejected_count += 1
             # Pick the most confident non-dog class across all rejected
@@ -151,4 +160,5 @@ def analyze(audio_bytes: bytes) -> dict[str, Any]:
         "detection": detection,
         "detected_class": detected_class,
         "rejected_segment_count": rejected_count,
+        "degraded": degraded,
     }

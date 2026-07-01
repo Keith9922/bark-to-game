@@ -27,13 +27,17 @@ class Classification(TypedDict):
     is_dog_like: bool
     top_other_class: str  # YAMNet display name; "" for heuristic
     top_other_score: float  # YAMNet score of top_other_class; 0.0 for heuristic
+    degraded: bool  # True when the heuristic fallback ran (YAMNet unavailable)
 
 
 def _heuristic(y: np.ndarray, sr: int) -> Classification:
     """Pure-feature classification used as fallback.
 
-    Uses duration + estimated F0 to pick the most plausible token type.
-    Confidence is fixed at 0.5 to signal "guessed".
+    Uses duration + estimated F0 to pick the most plausible token type. A
+    segment with no detectable pitch is rejected as non-dog: without YAMNet we
+    can't confirm a bark, and a pitchless burst is more likely noise / breath /
+    a consonant than a dog. Every heuristic result is flagged ``degraded`` so
+    the response can tell the user detection is best-effort.
     """
     import librosa
 
@@ -43,11 +47,12 @@ def _heuristic(y: np.ndarray, sr: int) -> Classification:
     if valid.size == 0:
         return Classification(
             type="BARK",
-            confidence=0.3,
+            confidence=0.2,
             source="heuristic",
-            is_dog_like=True,
+            is_dog_like=False,
             top_other_class="",
             top_other_score=0.0,
+            degraded=True,
         )
 
     mean_f0 = float(np.mean(valid))
@@ -66,6 +71,7 @@ def _heuristic(y: np.ndarray, sr: int) -> Classification:
         is_dog_like=True,
         top_other_class="",
         top_other_score=0.0,
+        degraded=True,
     )
 
 
@@ -80,6 +86,7 @@ def classify(y: np.ndarray, sr: int) -> Classification:
             is_dog_like=result["is_dog_like"],
             top_other_class=result["top_other_class"],
             top_other_score=result["top_other_score"],
+            degraded=False,
         )
     except Exception as exc:
         # ``error`` not ``warning``: in production this means the strict
