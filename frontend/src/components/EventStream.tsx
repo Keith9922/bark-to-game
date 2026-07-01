@@ -1,12 +1,19 @@
-import { useEffect, useRef, useState } from 'react'
-import { openJobStream, type JobEvent, type JobEventType } from '../lib/api'
+import { useEffect, useState } from 'react'
+import type { JobEvent, JobEventType } from '../lib/api'
 
+/**
+ * Presentational live-event log. The single SSE connection is owned by
+ * useGenerationJob; this component only renders the events it's handed, so
+ * there's exactly one stream per job (no duplicate EventSource) and the log
+ * stays in lock-step with the controller's progress state.
+ */
 interface Props {
-  jobId: string
+  events: JobEvent[]
+  lastEventAt: number | null
+  connection?: 'live' | 'reconnecting'
 }
 
 interface Line {
-  id: number
   type: JobEventType
   text: string
   detail?: string // e.g. countdown for rate_limit
@@ -38,7 +45,7 @@ function rateLimitText(
   return { text: `配额状态：${status}`, detail: undefined }
 }
 
-function formatEvent(event: JobEvent, nowMs: number): Omit<Line, 'id'> | null {
+function formatEvent(event: JobEvent, nowMs: number): Line | null {
   // Heartbeats and the initial hello frame don't need a dedicated line.
   switch (event.type) {
     case 'heartbeat':
@@ -78,37 +85,23 @@ function lineColorClass(type: JobEventType): string {
   }
 }
 
-export default function EventStream({ jobId }: Props) {
-  const [lines, setLines] = useState<Line[]>([])
-  const [lastContactMs, setLastContactMs] = useState<number>(() => Date.now())
-  // Bumped each second so the "last contact: Ns ago" tag stays current.
+export default function EventStream({ events, lastEventAt, connection = 'live' }: Props) {
+  // Re-render every second so the "last event: Ns ago" tag stays current.
   const [, setTick] = useState(0)
-  const nextIdRef = useRef(0)
-
-  useEffect(() => {
-    setLines([])
-    setLastContactMs(Date.now())
-    nextIdRef.current = 0
-
-    return openJobStream(jobId, {
-      onEvent: (event) => {
-        setLastContactMs(Date.now())
-        const partial = formatEvent(event, Date.now())
-        if (!partial) return
-        nextIdRef.current += 1
-        const line: Line = { id: nextIdRef.current, ...partial }
-        setLines((prev) => [...prev, line].slice(-MAX_LINES))
-      },
-    })
-  }, [jobId])
-
   useEffect(() => {
     const id = window.setInterval(() => setTick((x) => x + 1), 1000)
     return () => window.clearInterval(id)
   }, [])
 
-  const sinceContactS = Math.max(0, Math.round((Date.now() - lastContactMs) / 1000))
-  const stale = sinceContactS >= STALE_AFTER_S
+  const now = Date.now()
+  const lines = events
+    .map((e) => formatEvent(e, now))
+    .filter((l): l is Line => l !== null)
+    .slice(-MAX_LINES)
+
+  const sinceContactS = lastEventAt !== null ? Math.max(0, Math.round((now - lastEventAt) / 1000)) : null
+  const stale = sinceContactS !== null && sinceContactS >= STALE_AFTER_S
+  const reconnecting = connection === 'reconnecting'
 
   return (
     <section
@@ -117,14 +110,20 @@ export default function EventStream({ jobId }: Props) {
     >
       <header className="flex items-center justify-between text-[10px] uppercase tracking-wider text-amber-crt/50 font-mono">
         <span>· LIVE EVENTS ·</span>
-        <span className={stale ? 'text-yellow-400' : ''}>上次事件:{sinceContactS}s 前</span>
+        <span className={reconnecting || stale ? 'text-yellow-400' : ''}>
+          {reconnecting
+            ? '连接中断，重连中…'
+            : sinceContactS === null
+              ? '等待响应…'
+              : `上次事件:${sinceContactS}s 前`}
+        </span>
       </header>
       {lines.length === 0 ? (
         <p className="text-xs text-amber-crt/40 font-mono">等待 Claude 的第一条响应…</p>
       ) : (
         <ul className="space-y-1 font-mono text-xs">
-          {lines.map((line) => (
-            <li key={line.id} className={lineColorClass(line.type)}>
+          {lines.map((line, i) => (
+            <li key={`${line.type}-${i}`} className={lineColorClass(line.type)}>
               <span>{line.text}</span>
               {line.detail && <span className="text-amber-crt/60 ml-2">— {line.detail}</span>}
             </li>

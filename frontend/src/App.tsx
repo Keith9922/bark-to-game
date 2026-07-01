@@ -1,53 +1,16 @@
-import { useEffect, useRef, useState } from 'react'
 import ConceptCard from './components/ConceptCard'
 import EventStream from './components/EventStream'
-import GameFrame, { type PlayableGame } from './components/GameFrame'
+import GameFrame from './components/GameFrame'
 import ProgressBar from './components/ProgressBar'
 import Recorder from './components/Recorder'
 import SessionSwitcher from './components/SessionSwitcher'
 import TokenList from './components/TokenList'
 import WorksGrid from './components/WorksGrid'
-import {
-  cancelJob,
-  pollJobUntilDone,
-  postAnalyze,
-  postGenerate,
-  postTranslate,
-  type AnalyzeResponse,
-  type JobView,
-  type TranslateResponse,
-} from './lib/api'
-import { phaseFromAnalyzeResponse } from './lib/analyzePhase'
+import type { AnalyzeResponse, TranslateResponse } from './lib/api'
 import { linkProps, usePath } from './lib/router'
 import { useCurrentSessionId } from './lib/useSession'
+import { useGenerationJob, type GenPhase } from './lib/useGenerationJob'
 import WorksPage from './WorksPage'
-
-type Phase =
-  | { kind: 'idle' }
-  | { kind: 'analyzing'; startedAt: number; elapsedS: number }
-  | { kind: 'no_sound' }
-  | { kind: 'not_a_bark'; detectedClass: string; rejectedCount: number }
-  | { kind: 'translating'; tokens: AnalyzeResponse; startedAt: number; elapsedS: number }
-  | {
-      kind: 'generating'
-      tokens: AnalyzeResponse
-      concept: TranslateResponse
-      jobId: string | null
-      jobStatus: 'pending' | 'running'
-      elapsedS: number
-    }
-  | {
-      kind: 'playable'
-      tokens: AnalyzeResponse
-      concept: TranslateResponse
-      game: PlayableGame
-    }
-  | {
-      kind: 'error'
-      message: string
-      tokens?: AnalyzeResponse
-      concept?: TranslateResponse
-    }
 
 const STATUS: Record<string, { cn: string; en: string }> = {
   idle: { cn: '等待录音', en: 'READY' },
@@ -60,12 +23,12 @@ const STATUS: Record<string, { cn: string; en: string }> = {
   error: { cn: '出错了', en: 'ERROR' },
 }
 
-function statusLine(phase: Phase): string {
-  const v = STATUS[phase.kind]
+function statusLine(phase: GenPhase): string {
+  const v = STATUS[phase.kind] ?? STATUS.idle
   return `状态：${v.cn} · ${v.en}`
 }
 
-function statusDotClass(phase: Phase): string {
+function statusDotClass(phase: GenPhase): string {
   switch (phase.kind) {
     case 'analyzing':
     case 'translating':
@@ -80,24 +43,25 @@ function statusDotClass(phase: Phase): string {
   }
 }
 
-function tokensFromPhase(phase: Phase): AnalyzeResponse | undefined {
+function tokensFromPhase(phase: GenPhase): AnalyzeResponse | undefined {
   switch (phase.kind) {
     case 'translating':
+      return phase.tokens
     case 'generating':
     case 'playable':
     case 'error':
-      return phase.tokens
+      return phase.tokens ?? undefined
     default:
       return undefined
   }
 }
 
-function conceptFromPhase(phase: Phase): TranslateResponse | undefined {
+function conceptFromPhase(phase: GenPhase): TranslateResponse | undefined {
   switch (phase.kind) {
     case 'generating':
     case 'playable':
     case 'error':
-      return phase.concept
+      return phase.concept ?? undefined
     default:
       return undefined
   }
@@ -113,144 +77,8 @@ function App() {
 }
 
 function MainApp() {
-  const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
   const [sessionId] = useCurrentSessionId()
-  const generationCancelledRef = useRef(false)
-
-  // Tick the client-side elapsed counter for analyze + translate phases.
-  const tickStartedAt =
-    phase.kind === 'analyzing' || phase.kind === 'translating' ? phase.startedAt : null
-  useEffect(() => {
-    if (tickStartedAt === null) return
-    const id = window.setInterval(() => {
-      setPhase((curr) => {
-        if (curr.kind !== 'analyzing' && curr.kind !== 'translating') return curr
-        return { ...curr, elapsedS: (performance.now() - tickStartedAt) / 1000 }
-      })
-    }, 500)
-    return () => window.clearInterval(id)
-  }, [tickStartedAt])
-
-  const reset = () => setPhase({ kind: 'idle' })
-
-  const handleRecorded = async (blob: Blob) => {
-    generationCancelledRef.current = false
-    setPhase({ kind: 'analyzing', startedAt: performance.now(), elapsedS: 0 })
-
-    let tokens: AnalyzeResponse
-    try {
-      tokens = await postAnalyze(blob)
-    } catch (err) {
-      setPhase({
-        kind: 'error',
-        message: `分析失败：${err instanceof Error ? err.message : String(err)}`,
-      })
-      return
-    }
-
-    const earlyPhase = phaseFromAnalyzeResponse(tokens)
-    if (earlyPhase) {
-      setPhase(earlyPhase)
-      return
-    }
-
-    setPhase({ kind: 'translating', tokens, startedAt: performance.now(), elapsedS: 0 })
-    let concept: TranslateResponse
-    try {
-      concept = await postTranslate(tokens, sessionId)
-    } catch (err) {
-      setPhase({
-        kind: 'error',
-        message: `游戏概念生成失败：${err instanceof Error ? err.message : String(err)}`,
-        tokens,
-      })
-      return
-    }
-
-    setPhase({
-      kind: 'generating',
-      tokens,
-      concept,
-      jobId: null,
-      elapsedS: 0,
-      jobStatus: 'pending',
-    })
-
-    try {
-      const accepted = await postGenerate(tokens, concept, sessionId)
-      if (generationCancelledRef.current) {
-        await cancelJob(accepted.job_id).catch(() => undefined)
-        reset()
-        return
-      }
-      setPhase({
-        kind: 'generating',
-        tokens,
-        concept,
-        jobId: accepted.job_id,
-        elapsedS: 0,
-        jobStatus: accepted.status === 'running' ? 'running' : 'pending',
-      })
-
-      const onProgress = (job: JobView) => {
-        setPhase((current) =>
-          current.kind === 'generating' && current.jobId === job.job_id
-            ? {
-                ...current,
-                elapsedS: job.elapsed_s,
-                jobStatus: job.status === 'running' ? 'running' : 'pending',
-              }
-            : current,
-        )
-      }
-
-      const final = await pollJobUntilDone(accepted.job_id, {
-        intervalMs: 5000,
-        onProgress,
-      })
-
-      if (final.status === 'done' && final.game_id && final.play_url) {
-        setPhase({
-          kind: 'playable',
-          tokens,
-          concept,
-          game: {
-            game_id: final.game_id,
-            summary: final.summary ?? '',
-            play_url: final.play_url,
-          },
-        })
-      } else if (final.status === 'cancelled') {
-        reset()
-      } else {
-        setPhase({
-          kind: 'error',
-          message: `游戏生成失败：${final.error ?? '未知错误'}`,
-          tokens,
-          concept,
-        })
-      }
-    } catch (err) {
-      setPhase({
-        kind: 'error',
-        message: `游戏生成失败：${err instanceof Error ? err.message : String(err)}`,
-        tokens,
-        concept,
-      })
-    }
-  }
-
-  const handleCancelGeneration = async () => {
-    if (phase.kind !== 'generating') return
-    generationCancelledRef.current = true
-    if (phase.jobId) {
-      try {
-        await cancelJob(phase.jobId)
-      } catch {
-        /* the poll loop will surface the failure */
-      }
-    }
-  }
+  const { phase, start, cancel, reset, fail } = useGenerationJob(sessionId)
 
   const tokens = tokensFromPhase(phase)
   const concept = conceptFromPhase(phase)
@@ -300,9 +128,9 @@ function MainApp() {
         <div className="flex justify-center py-4">
           <Recorder
             disabled={recorderDisabled}
-            onRecorded={handleRecorded}
-            onCancel={() => reset()}
-            onError={(message) => setPhase({ kind: 'error', message })}
+            onRecorded={start}
+            onCancel={reset}
+            onError={fail}
           />
         </div>
 
@@ -322,7 +150,7 @@ function MainApp() {
             <ul className="text-sm text-amber-crt/70 list-disc list-inside space-y-1">
               <li>话筒离嘴太远</li>
               <li>录音时长太短</li>
-              <li>系统没拿到麦克风权限</li>
+              <li>录的是环境噪声，没有清晰的一声</li>
             </ul>
             <button
               type="button"
@@ -336,16 +164,11 @@ function MainApp() {
 
         {phase.kind === 'not_a_bark' && (
           <section className="border border-amber-crt/40 bg-amber-crt/5 p-5 space-y-3">
-            <h3 className="font-display text-xl text-amber-crt">
-              🐶 听到了，但不像狗叫
-            </h3>
+            <h3 className="font-display text-xl text-amber-crt">🐶 听到了，但不像狗叫</h3>
             <p className="text-sm text-amber-crt/80">
               AI 听到的更像是
-              <strong className="text-signal mx-1">
-                {phase.detectedClass || '其他声音'}
-              </strong>
-              {phase.rejectedCount > 1 ? `（共 ${phase.rejectedCount} 段都判定为非狗叫）` : ''}
-              。
+              <strong className="text-signal mx-1">{phase.detectedClass || '其他声音'}</strong>
+              {phase.rejectedCount > 1 ? `（共 ${phase.rejectedCount} 段都判定为非狗叫）` : ''}。
             </p>
             <p className="text-xs text-amber-crt/60">
               对着话筒认真学一声「汪 / 嗷呜 / 嗯哼」试试。声音越像狗，AI 越能解读。
@@ -365,7 +188,7 @@ function MainApp() {
         {phase.kind === 'translating' && (
           <ProgressBar
             label="正在构思游戏 · TRANSLATING"
-            caption="Claude 在抽取一组风格卡（艺术 × 机制 × 情绪），并产出 5 个候选概念，挑最有差异的那个。通常 30 秒–2 分钟。"
+            caption="Claude 在抽取一组风格卡（艺术 × 机制 × 情绪），并产出候选概念，挑最有差异的那个。通常 30 秒–2 分钟。"
             elapsedS={phase.elapsedS}
             estimateS={90}
           />
@@ -380,9 +203,13 @@ function MainApp() {
               caption={`Claude Code 正在按照上面的概念 + 视觉配方写一个独立的 HTML 游戏文件。通常 1–3 分钟，被限流时可能更长。${phase.jobId ? `任务编号 ${phase.jobId}。` : ''}`}
               elapsedS={phase.elapsedS}
               estimateS={120}
-              onCancel={handleCancelGeneration}
+              onCancel={cancel}
             />
-            {phase.jobId && <EventStream jobId={phase.jobId} />}
+            <EventStream
+              events={phase.events}
+              lastEventAt={phase.lastEventAt}
+              connection={phase.connection}
+            />
           </div>
         )}
 
@@ -391,8 +218,7 @@ function MainApp() {
         {/* Preview of the works archive — a teaser strip that lives on the
             home page while the user is idle. The full /works route shows the
             same grid with no limit. Hidden during recording / generation so
-            the active task owns the page. The grid refreshes naturally on
-            remount (every return to idle/error). */}
+            the active task owns the page. */}
         {(phase.kind === 'idle' ||
           phase.kind === 'no_sound' ||
           phase.kind === 'not_a_bark' ||

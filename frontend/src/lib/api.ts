@@ -117,7 +117,7 @@ export async function blobToWav(input: Blob): Promise<Blob> {
   }
 }
 
-export async function postAnalyze(audio: Blob): Promise<AnalyzeResponse> {
+export async function postAnalyze(audio: Blob, signal?: AbortSignal): Promise<AnalyzeResponse> {
   const wav = await blobToWav(audio)
   const form = new FormData()
   form.append('audio', wav, 'recording.wav')
@@ -125,6 +125,7 @@ export async function postAnalyze(audio: Blob): Promise<AnalyzeResponse> {
   const response = await fetch(`${BACKEND_URL}/api/audio/analyze`, {
     method: 'POST',
     body: form,
+    signal,
   })
 
   if (!response.ok) {
@@ -221,6 +222,7 @@ async function readNdjsonFinalLine(response: Response): Promise<string> {
 export async function postTranslate(
   analyzeResult: AnalyzeResponse,
   sessionId: string = 'default',
+  signal?: AbortSignal,
 ): Promise<TranslateResponse> {
   const response = await fetch(`${BACKEND_URL}/api/concept/translate`, {
     method: 'POST',
@@ -231,6 +233,7 @@ export async function postTranslate(
       audio_hash: analyzeResult.audio_hash,
       session_id: sessionId,
     }),
+    signal,
   })
 
   if (!response.ok) {
@@ -318,6 +321,7 @@ export async function postGenerate(
   analyzeResult: AnalyzeResponse,
   translation: TranslateResponse,
   sessionId: string = 'default',
+  signal?: AbortSignal,
 ): Promise<GenerateAccepted> {
   const response = await fetch(`${BACKEND_URL}/api/game/generate`, {
     method: 'POST',
@@ -330,6 +334,7 @@ export async function postGenerate(
       audio_hash: analyzeResult.audio_hash,
       session_id: sessionId,
     }),
+    signal,
   })
 
   if (response.status !== 202) {
@@ -339,31 +344,12 @@ export async function postGenerate(
   return response.json() as Promise<GenerateAccepted>
 }
 
-export async function getJob(jobId: string): Promise<JobView> {
-  const response = await fetch(`${BACKEND_URL}/api/game/job/${jobId}`)
+export async function getJob(jobId: string, signal?: AbortSignal): Promise<JobView> {
+  const response = await fetch(`${BACKEND_URL}/api/game/job/${jobId}`, { signal })
   if (!response.ok) {
     throw new Error(await extractApiErrorMessage(response, 'job'))
   }
   return response.json() as Promise<JobView>
-}
-
-export interface PollOptions {
-  intervalMs?: number
-  signal?: AbortSignal
-  onProgress?: (job: JobView) => void
-}
-
-export async function pollJobUntilDone(jobId: string, opts: PollOptions = {}): Promise<JobView> {
-  const interval = opts.intervalMs ?? 5000
-  while (true) {
-    if (opts.signal?.aborted) throw new DOMException('poll aborted', 'AbortError')
-    const job = await getJob(jobId)
-    opts.onProgress?.(job)
-    if (job.status === 'done' || job.status === 'failed' || job.status === 'cancelled') {
-      return job
-    }
-    await new Promise((r) => setTimeout(r, interval))
-  }
 }
 
 export async function cancelJob(jobId: string): Promise<JobView> {
