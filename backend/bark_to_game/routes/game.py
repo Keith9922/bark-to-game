@@ -4,17 +4,22 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import shutil
 import time
 from collections.abc import AsyncIterator
+from pathlib import Path
+from typing import cast
 
 import psutil
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import FileResponse, StreamingResponse
 from loguru import logger
 
+from bark_to_game import settings
 from bark_to_game.generate import jobs
 from bark_to_game.generate.generator import (
     GenerationStalledError,
+    GenerationTruncatedError,
     RateLimitedError,
     generate,
 )
@@ -97,6 +102,11 @@ def _friendly_job_error(kind: str, exc: BaseException) -> str:
             "Claude API 配额暂时不足，请稍后再试。 "
             "(API quota exhausted — try later.)"
         )
+    if kind == "truncated":
+        return (
+            "游戏内容太大，生成中途被截断了，请重试。 "
+            "(Generation hit the output limit — please retry.)"
+        )
     detail = str(exc) or type(exc).__name__
     return f"游戏生成失败：{detail}"
 
@@ -129,43 +139,79 @@ def _remember_cwd(job: JobState, cwd: str) -> None:
     job.subprocess_cwd = cwd
 
 
+def _cleanup_husk(job: JobState) -> None:
+    """Delete the per-game dir left by a FAILED attempt (a 'husk': CLAUDE.md
+    but no game.html). Never touches a dir that has game.html. Resets the
+    job's cwd pointer so a subsequent retry records its own dir."""
+    cwd = job.subprocess_cwd
+    if not cwd:
+        return
+    husk = Path(cwd)
+    try:
+        if husk.is_dir() and not (husk / "game.html").exists():
+            shutil.rmtree(husk, ignore_errors=True)
+            logger.info(f"job {job.job_id}: removed husk dir {husk.name}")
+    except OSError as exc:
+        logger.warning(f"job {job.job_id}: husk cleanup failed - {exc!r}")
+    finally:
+        job.subprocess_cwd = None
+
+
 async def _run_job(job: JobState, req: GenerateRequest) -> None:
     job.mark_running()
     logger.info(f"job {job.job_id}: running (recipe={req.visual_recipe})")
-    try:
-        result = await generate(
-            concept=req.concept.model_dump(),
-            style_triplet_summary=_style_summary(req),
-            visual_recipe_name=req.visual_recipe,
-            game_params=req.game_params.model_dump(),
-            on_start=lambda cwd: _remember_cwd(job, cwd),
-            publish=job.publish,
-        )
-    except asyncio.CancelledError:
-        job.mark_cancelled()
-        job.publish(_terminal_event(job))
-        logger.info(f"job {job.job_id}: cancelled ({job.elapsed_s():.0f}s)")
-        raise
-    except RateLimitedError as exc:
-        job.mark_failed(_friendly_job_error("rate_limited", exc))
-        job.publish(_terminal_event(job))
-        _reap_post_failure(job, "rate-limited")
-        logger.warning(f"job {job.job_id}: rate-limited (resets_at={exc.resets_at})")
-    except GenerationStalledError as exc:
-        job.mark_failed(_friendly_job_error("stalled", exc))
-        job.publish(_terminal_event(job))
-        _reap_post_failure(job, "stalled")
-        logger.warning(f"job {job.job_id}: stalled - {exc!r}")
-    except Exception as exc:
-        job.mark_failed(_friendly_job_error("errored", exc))
-        job.publish(_terminal_event(job))
-        _reap_post_failure(job, "errored")
-        logger.warning(f"job {job.job_id}: failed ({job.elapsed_s():.0f}s) - {exc!r}")
-    else:
-        job.mark_done(game_id=result["game_id"], summary=result["summary"])
-        _record_history(job, req, result["game_id"])
-        job.publish(_terminal_event(job))
-        logger.info(f"job {job.job_id}: done game_id={result['game_id']} ({job.elapsed_s():.0f}s)")
+    max_attempts = settings.API_MAX_RETRIES + 1
+    for attempt in range(1, max_attempts + 1):
+        try:
+            result = await generate(
+                concept=req.concept.model_dump(),
+                style_triplet_summary=_style_summary(req),
+                visual_recipe_name=req.visual_recipe,
+                game_params=req.game_params.model_dump(),
+                on_start=lambda cwd: _remember_cwd(job, cwd),
+                publish=job.publish,
+            )
+        except asyncio.CancelledError:
+            job.mark_cancelled()
+            job.publish(_terminal_event(job))
+            logger.info(f"job {job.job_id}: cancelled ({job.elapsed_s():.0f}s)")
+            raise
+        except RateLimitedError as exc:
+            job.mark_failed(_friendly_job_error("rate_limited", exc))
+            job.publish(_terminal_event(job))
+            _reap_post_failure(job, "rate-limited")
+            _cleanup_husk(job)
+            logger.warning(f"job {job.job_id}: rate-limited (resets_at={exc.resets_at})")
+            return
+        except GenerationTruncatedError as exc:
+            job.mark_failed(_friendly_job_error("truncated", exc))
+            job.publish(_terminal_event(job))
+            _reap_post_failure(job, "truncated")
+            _cleanup_husk(job)
+            logger.warning(f"job {job.job_id}: truncated - {exc!r}")
+            return
+        except Exception as exc:
+            _reap_post_failure(job, "retryable")
+            _cleanup_husk(job)
+            if attempt < max_attempts:
+                logger.warning(
+                    f"job {job.job_id}: attempt {attempt}/{max_attempts} failed "
+                    f"({type(exc).__name__}: {exc}); retrying"
+                )
+                continue
+            kind = "stalled" if isinstance(exc, GenerationStalledError) else "errored"
+            job.mark_failed(_friendly_job_error(kind, exc))
+            job.publish(_terminal_event(job))
+            logger.warning(f"job {job.job_id}: failed after {attempt} attempts - {exc!r}")
+            return
+        else:
+            job.mark_done(game_id=result["game_id"], summary=result["summary"])
+            _record_history(job, req, result["game_id"])
+            job.publish(_terminal_event(job))
+            logger.info(
+                f"job {job.job_id}: done game_id={result['game_id']} ({job.elapsed_s():.0f}s)"
+            )
+            return
 
 
 def _reap_post_failure(job: JobState, reason: str) -> None:
@@ -467,5 +513,5 @@ async def showcase_all() -> dict[str, list[dict[str, object]]]:
         it for it in items_by_id.values()
         if (GENERATED_GAMES_DIR / str(it["game_id"]) / "game.html").exists()
     ]
-    items.sort(key=lambda it: it["created_at"], reverse=True)
+    items.sort(key=lambda it: cast(float, it["created_at"]), reverse=True)
     return {"items": items}

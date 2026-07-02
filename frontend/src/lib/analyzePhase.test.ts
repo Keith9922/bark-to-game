@@ -12,6 +12,7 @@ function makeResponse(overrides: Partial<AnalyzeResponse>): AnalyzeResponse {
     detection: 'silent',
     detected_class: '',
     rejected_segment_count: 0,
+    degraded: false,
     ...overrides,
   }
 }

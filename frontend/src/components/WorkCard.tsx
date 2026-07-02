@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { audioPlayUrl, playUrlFor, type WorkItem } from '../lib/api'
+import { audioPlayUrl, type WorkItem } from '../lib/api'
+import { linkProps } from '../lib/router'
 
 interface Props {
   work: WorkItem
@@ -72,9 +73,7 @@ export default function WorkCard({ work }: Props) {
 
       <div className="flex flex-wrap items-center gap-3 pt-1">
         <a
-          href={playUrlFor(work.play_url)}
-          target="_blank"
-          rel="noreferrer"
+          {...linkProps(`/game/${work.game_id}`)}
           className="inline-flex items-center gap-1 px-3 py-1.5 border-2 border-signal text-signal hover:bg-signal/10 font-display text-xs sm:text-sm"
           style={{ WebkitTapHighlightColor: 'transparent' }}
         >

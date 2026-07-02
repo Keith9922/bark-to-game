@@ -51,7 +51,13 @@ def make(
 ) -> Token:
     return Token(
         type=classification["type"],
-        pitch=_bin(features["f0_mean_hz"], _PITCH_BINS),
+        # Explicit UNKNOWN for unvoiced segments: pyin returning None means "no
+        # reliable pitch", which must not be silently bucketed as LOW.
+        pitch=(
+            "UNKNOWN"
+            if features["f0_mean_hz"] is None
+            else _bin(features["f0_mean_hz"], _PITCH_BINS)
+        ),
         duration=_bin(float(duration_ms), _DURATION_BINS),
         intensity=_bin(features["rms"], _INTENSITY_BINS),
         contour=features["contour"],

@@ -44,9 +44,10 @@ API_KEY: str | None = os.getenv("BARK_API_KEY") or None
 # game generation; thinking variants add latency without helping output quality.
 API_MODEL: str = os.getenv("BARK_API_MODEL", "claude-opus-4-7")
 
-# Hard cap on tokens per generation. Single-file games typically fit in
-# 6-10k tokens; we leave headroom for verbose visual recipes.
-API_MAX_OUTPUT_TOKENS: int = int(os.getenv("BARK_API_MAX_OUTPUT_TOKENS", "16000"))
+# Hard cap on tokens per generation. Single-file games run 28-33 KB of HTML
+# (~10-15k tokens with dense JS); 32000 leaves 2-3x headroom so truncation
+# (the dominant husk cause) essentially disappears. Bump via .env if needed.
+API_MAX_OUTPUT_TOKENS: int = int(os.getenv("BARK_API_MAX_OUTPUT_TOKENS", "32000"))
 
 # Translate stage (token sequence -> 5 game concept candidates) is much
 # lighter than game generation — ~700 output tokens of JSON. Defaults to a
@@ -62,3 +63,8 @@ API_TRANSLATE_MODEL: str = os.getenv("BARK_API_TRANSLATE_MODEL", "claude-sonnet-
 API_TRANSLATE_MAX_OUTPUT_TOKENS: int = int(
     os.getenv("BARK_API_TRANSLATE_MAX_OUTPUT_TOKENS", "8192")
 )
+
+# How many times _run_job retries generation on a transient failure (stall /
+# unexpected error). Rate-limit and truncation are NOT retried. Total attempts
+# = API_MAX_RETRIES + 1.
+API_MAX_RETRIES: int = int(os.getenv("BARK_API_MAX_RETRIES", "2"))

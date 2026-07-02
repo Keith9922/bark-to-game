@@ -19,6 +19,7 @@ from bark_to_game import settings
 from bark_to_game.generate._common import (
     GenerationResult,
     GenerationStalledError,
+    GenerationTruncatedError,
     RateLimitedError,
 )
 from bark_to_game.schemas.game import JobEvent
@@ -26,6 +27,7 @@ from bark_to_game.schemas.game import JobEvent
 __all__ = [
     "GenerationResult",
     "GenerationStalledError",
+    "GenerationTruncatedError",
     "RateLimitedError",
     "generate",
 ]
